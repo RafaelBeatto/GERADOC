@@ -1,7 +1,7 @@
 {
   "name": "geradoc",
-  "version": "1.0.0",
-  "description": "Gerador local de documentos em PDF a partir de modelos com campos [CAMPO].",
+  "version": "1.1.0",
+  "description": "Gerador local de documentos em PDF e Word a partir de modelos com campos [CAMPO].",
   "private": true,
   "type": "module",
   "main": "src/servidor.js",
@@ -13,8 +13,12 @@
     "node": ">=20"
   },
   "dependencies": {
+    "docx": "9.15.0",
     "express": "^4.22.3",
     "puppeteer-core": "^25.17.0",
     "quill": "2.0.3"
+  },
+  "devDependencies": {
+    "fflate": "0.8.3"
   }
 }

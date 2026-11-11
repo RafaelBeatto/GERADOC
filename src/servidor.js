@@ -10,7 +10,20 @@ const PORTA = Number(process.env.GERADOC_PORTA) || 3000;
 const URL = `http://localhost:${PORTA}`;
 const { version: VERSAO } = JSON.parse(readFileSync(path.join(RAIZ, 'package.json'), 'utf8'));
 
-const app = criarApp({ versao: VERSAO });
+async function encerrar(codigo = 0) {
+  await app.locals.backup.parar().catch(() => {});
+  await app.locals.gerador.fechar();
+  process.exit(codigo);
+}
+
+// "Encerrar o GERADOC" pela tela (útil quando a janela preta fica minimizada pelo atalho).
+const app = criarApp({
+  versao: VERSAO,
+  aoEncerrar: () => {
+    console.log('GERADOC encerrado pela tela. Pode fechar esta janela.');
+    encerrar(0);
+  },
+});
 
 function abrirNavegador() {
   if (process.env.GERADOC_SEM_NAVEGADOR) return;
@@ -22,14 +35,16 @@ const servidor = app.listen(PORTA, HOST, () => {
   console.log(`GERADOC v${VERSAO} rodando em ${URL}`);
   console.log('Mantenha esta janela aberta enquanto usa o sistema. Feche-a para encerrar.');
   abrirNavegador();
+  // Backup externo (se configurado): uma cópia logo ao abrir.
+  app.locals.backup.executar().then((estado) => {
+    if (estado.pasta && estado.ultimoErro) console.warn(`ATENÇÃO: ${estado.ultimoErro}`);
+    else if (estado.pasta) console.log(`Backup externo em dia: ${estado.pasta}`);
+  }).catch(() => {});
 });
 
-// Fecha o navegador sem janela usado para os PDFs ao encerrar.
+// Fecha o navegador sem janela usado para os documentos ao encerrar.
 for (const sinal of ['SIGINT', 'SIGTERM', 'SIGHUP', 'SIGBREAK']) {
-  process.on(sinal, async () => {
-    await app.locals.pdf.fechar();
-    process.exit(0);
-  });
+  process.on(sinal, () => encerrar(0));
 }
 
 async function versaoAberta() {

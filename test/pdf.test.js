@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { criarApp } from '../src/app.js';
-import { localizarNavegador, nomeArquivoPdf } from '../src/pdf.js';
+import { localizarNavegador, nomeArquivoPdf } from '../src/gerador.js';
 
 test('nome do arquivo: tira caracteres proibidos no Windows e acrescenta a data', () => {
   const data = new Date(2026, 10, 10);

@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.1.0] - 2026-11-11
+### Adicionado
+- **Word (.docx)**: botão **Gerar Word** ao lado de Gerar PDF, com a mesma formatação, cabeçalho, rodapé, numeração, imagens, listas e quebras de página.
+- **Tipos de campo** `[CAMPO:formato]`: data, data por extenso, CPF, CNPJ, CEP, telefone, moeda, valor por extenso, número, número por extenso e MAIÚSCULAS. Perguntas com máscara, calendário e verificação (CPF/CNPJ com dígito errado ou data inexistente não deixam gerar). Prévia "No documento: …" embaixo de cada resposta.
+- `[HOJE]` (e `[HOJE:extenso]`): preenchido sozinho com a data do dia.
+- **Página por modelo**: papel (A4, Carta, Ofício, A5), orientação, margens, fonte e tamanho da letra.
+- **Cabeçalho e rodapé** em todas as páginas (com imagens e campos) e numeração "Página X de Y". A margem cresce sozinha se o cabeçalho/rodapé não couber.
+- **Imagens** no editor (reduzidas automaticamente para não pesar) com ajuste de largura (25/50/75/100%).
+- **Quebra de página** manual no editor.
+- **Inserir campo** no editor: escolhe o nome e o tipo e o campo é escrito no lugar certo.
+- **Histórico** de documentos gerados, com busca, **Gerar de novo** (abre com as mesmas respostas), excluir e limpar.
+- **Sugestões** de respostas já usadas e **Usar estas respostas** (última geração do modelo).
+- **Versões anteriores**: tela para ver e restaurar qualquer uma das 20 versões guardadas (restaurar também guarda a atual).
+- **Exportar/importar** modelos (um ou todos) em arquivo `.json`; importar nunca substitui.
+- **Backup externo** automático para OneDrive, Google Drive ou pendrive (sugere as pastas encontradas no computador).
+- **Configurações**: backup externo, exportar/importar, criar atalho e **Encerrar o GERADOC** pela tela.
+- **Atalho com ícone** na Área de Trabalho (criado na instalação, por `CriarAtalho.bat` ou pela tela), que abre com a janela preta minimizada.
+- Menu no topo: Modelos, Histórico, Configurações.
+
+### Alterado
+- `GERADOC.bat` confere a versão do Node (20+) e reinstala as dependências quando uma versão nova do GERADOC precisa (antes só instalava se `node_modules` não existisse).
+- Pré-visualização mostra o papel, as margens, a fonte, o cabeçalho e o rodapé do modelo.
+- Avisos flutuantes não bloqueiam mais o clique nos botões que ficam embaixo deles.
+
+### Segurança
+- O servidor só aceita pedidos endereçados a `localhost` (proteção contra "DNS rebinding") e recusa pedidos que alteram dados vindos de outros sites.
+
 ## [1.0.0] - 2026-11-10
 ### Adicionado
 - F5: **Lixeira** — tela com os modelos excluídos; **Restaurar** (renomeia para "… (restaurado)" se o nome já estiver em uso) e **Excluir definitivamente** (com confirmação; uma última cópia fica em `dados/backup/`).

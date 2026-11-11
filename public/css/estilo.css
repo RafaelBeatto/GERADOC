@@ -349,11 +349,20 @@ code {
 .painel-previa { overflow: hidden; }
 .mesa { background: var(--cor-mesa); padding: var(--e8); }
 .folha-moldura { max-width: 794px; margin: 0 auto; box-shadow: var(--sombra-lg); }
+/* Folha da pré-visualização: proporção, margens, fonte e tamanho vêm do modelo (gerar.js). */
 .folha {
-  min-height: 600px; height: auto; overflow: visible;
-  padding: 9.5% 12%; background: #fff; color: #1b1b1f;
-  font-family: var(--fonte); font-size: 16px; line-height: 1.6; cursor: default;
+  display: flex; flex-direction: column;
+  height: auto; overflow: visible; aspect-ratio: 21 / 29.7;
+  padding: 11.9%; background: #fff; color: #1b1b1f;
+  font-family: var(--fonte); font-size: 12pt; line-height: 1.6; cursor: default;
 }
+.folha .ql-editor { min-height: 0; padding: 0; height: auto; overflow: visible; line-height: 1.6; cursor: default; }
+.folha-corpo { flex: 1; }
+.folha-cabecalho { padding-bottom: .6em !important; margin-bottom: .9em; border-bottom: 1px dashed var(--cor-borda-forte); }
+.folha-rodape { margin-top: 1.2em; padding-top: .6em; border-top: 1px dashed var(--cor-borda-forte); }
+.folha-numero { font-size: .85em; color: var(--cor-texto-3); }
+.folha--simples { display: block; aspect-ratio: auto; min-height: 600px; padding: 9.5% 12%; font-size: 12pt; }
+.folha-moldura--a4 { max-width: 794px; }
 .previa-vazia { color: var(--cor-texto-3); font-style: italic; }
 
 mark.campo { border-radius: 3px; padding: 0 2px; transition: background var(--transicao), box-shadow var(--transicao); }
@@ -390,19 +399,151 @@ mark.campo--ativo { background: #c7d2fe; box-shadow: 0 0 0 2px var(--cor-primari
   background: var(--cor-superficie); border: 1px solid var(--cor-borda); border-left-width: 4px;
   border-radius: var(--raio); box-shadow: var(--sombra-lg);
   animation: entrar .18s ease;
+  pointer-events: none; /* só informa: nunca bloqueia o clique no que está embaixo */
 }
 .aviso--ok { border-left-color: var(--cor-sucesso); }
 .aviso--erro { border-left-color: var(--cor-erro); }
 @keyframes entrar { from { opacity: 0; transform: translateY(8px); } }
 
+/* ---------- v1.1: menu do topo ---------- */
+.topo-conteudo { gap: var(--e6); }
+.menu { display: flex; align-items: center; gap: var(--e1); flex: 1; }
+.menu-item {
+  display: inline-flex; align-items: center; gap: var(--e2); height: 34px; padding: 0 var(--e3);
+  border-radius: var(--raio); color: var(--cor-texto-2); text-decoration: none; font-weight: 500;
+  transition: background var(--transicao), color var(--transicao);
+}
+.menu-item:hover { background: var(--cor-fundo); color: var(--cor-texto); }
+.menu-item--ativo { color: var(--cor-primaria); background: var(--cor-primaria-suave); }
+
+/* ---------- Tabelas: nome com detalhe ---------- */
+.modelo-nome-texto { display: flex; flex-direction: column; min-width: 0; }
+.modelo-nome-texto > span:first-child { font-weight: 600; overflow-wrap: anywhere; }
+.modelo-detalhe { font-size: var(--texto-sm); color: var(--cor-texto-3); overflow-wrap: anywhere; }
+
+/* ---------- Editor: extras ---------- */
+/* O Quill usa height:100%; dentro do grid isso viraria a altura da linha toda. */
+.editor.ql-container { height: auto; }
+.editor--mini, .editor--mini .ql-editor { min-height: 96px; }
+.editor--mini .ql-editor { padding: var(--e4) var(--e5); }
+.editor--mini .ql-editor.ql-blank::before { left: var(--e5); right: var(--e5); }
+.rotulo--espaco { margin-top: var(--e5); }
+.ql-editor img { max-width: 100%; }
+.ql-editor img.imagem-selecionada { outline: 2px solid var(--cor-primaria); outline-offset: 2px; }
+.ql-editor hr.quebra-pagina, .folha hr.quebra-pagina {
+  position: relative; height: 0; margin: 1.4em 0; border: 0; border-top: 2px dashed var(--cor-borda-forte); overflow: visible;
+}
+.ql-editor hr.quebra-pagina::after, .folha hr.quebra-pagina::after {
+  content: "Quebra de página"; position: absolute; left: 50%; top: -.75em; transform: translateX(-50%);
+  padding: 0 var(--e2); background: #fff; color: var(--cor-texto-3);
+  font: 500 11px/1.4 var(--fonte); letter-spacing: .03em; text-transform: uppercase;
+}
+
+.ferramenta-imagem {
+  position: absolute; z-index: 20; display: flex; align-items: center; gap: var(--e1);
+  padding: var(--e1) var(--e2); font-size: var(--texto-xs); color: var(--cor-texto-2);
+  background: var(--cor-superficie); border: 1px solid var(--cor-borda); border-radius: var(--raio); box-shadow: var(--sombra-lg);
+}
+.ferramenta-imagem span { padding: 0 var(--e1); font-weight: 600; }
+.ferramenta-imagem button {
+  height: 26px; padding: 0 var(--e2); font: inherit; font-weight: 600; color: var(--cor-texto);
+  background: transparent; border: 1px solid transparent; border-radius: var(--raio-sm); cursor: pointer;
+}
+.ferramenta-imagem button:hover { background: var(--cor-primaria-suave); color: var(--cor-primaria); }
+
+.inserir-campo {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--e2);
+  margin-top: var(--e4); padding: var(--e3);
+  border: 1px solid var(--cor-borda); border-radius: var(--raio); background: var(--cor-superficie);
+}
+.inserir-campo-titulo {
+  display: inline-flex; align-items: center; gap: var(--e1);
+  font-size: var(--texto-xs); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--cor-texto-3);
+}
+.campo-texto--pequeno { width: auto; height: 30px; font-size: var(--texto-sm); }
+#inserir-campo-nome { width: 170px; }
+select.campo-texto { padding-right: var(--e2); cursor: pointer; }
+
+.grade-campos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--e4); align-content: start; }
+.grupo { display: flex; flex-direction: column; min-width: 0; margin: 0; }
+.grupo .rotulo { margin-bottom: var(--e2); }
+.grupo--largo { grid-column: 1 / -1; }
+.grupo--linha { margin-top: var(--e5); max-width: 320px; }
+.margens { border: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--e3); }
+.margens legend { padding: 0; }
+.margens label { display: flex; flex-direction: column; gap: var(--e1); font-size: var(--texto-sm); color: var(--cor-texto-2); }
+
+.chip--auto { color: var(--cor-sucesso); background: var(--cor-sucesso-suave); border-color: var(--cor-sucesso-borda); }
+.chip--tipo { color: var(--cor-primaria); background: var(--cor-primaria-suave); border-color: var(--cor-primaria-borda); }
+
+/* ---------- Gerar: extras ---------- */
+.ultimas {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--e2);
+  margin-bottom: var(--e4); padding: var(--e3);
+  font-size: var(--texto-sm); color: var(--cor-texto-2);
+  background: var(--cor-primaria-suave); border: 1px solid var(--cor-primaria-borda); border-radius: var(--raio);
+}
+.espacador { flex: 1; }
+.botao--icone { width: var(--altura-controle); padding: 0; }
+.painel-perguntas .painel-rodape { flex-wrap: nowrap; }
+.entrada-moeda { display: flex; align-items: stretch; }
+.entrada-moeda .prefixo {
+  display: grid; place-items: center; padding: 0 var(--e3); font-weight: 600; color: var(--cor-texto-2);
+  background: var(--cor-superficie-2); border: 1px solid var(--cor-borda-forte); border-right: 0;
+  border-radius: var(--raio) 0 0 var(--raio);
+}
+.entrada-moeda .campo-texto { border-radius: 0 var(--raio) var(--raio) 0; }
+.exemplo-resposta { margin-top: var(--e1); font-size: var(--texto-xs); color: var(--cor-texto-3); overflow-wrap: anywhere; }
+.exemplo-resposta:empty { display: none; }
+.pergunta .erro-campo { margin-top: var(--e1); font-size: var(--texto-xs); }
+
+/* ---------- Versões ---------- */
+.versoes-grade { display: grid; grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); gap: var(--e6); align-items: start; }
+.lista-versoes { list-style: none; margin: 0; padding: var(--e2); display: flex; flex-direction: column; gap: var(--e1); max-height: 70vh; overflow-y: auto; }
+.versao {
+  width: 100%; display: flex; flex-direction: column; gap: 2px; text-align: left;
+  padding: var(--e3); font: inherit; color: var(--cor-texto); cursor: pointer;
+  background: transparent; border: 1px solid transparent; border-radius: var(--raio);
+}
+.versao span { font-size: var(--texto-sm); color: var(--cor-texto-3); }
+.versao:hover { background: var(--cor-superficie-2); }
+.selecionada .versao { background: var(--cor-primaria-suave); border-color: var(--cor-primaria-borda); }
+
+/* ---------- Configurações ---------- */
+.linha-campo { display: flex; gap: var(--e3); }
+.linha-campo .campo-texto { flex: 1; font-family: var(--fonte-mono); font-size: var(--texto-sm); }
+.sugestoes-pasta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--e2); margin-top: var(--e3); }
+.sugestoes-pasta:empty { display: none; }
+.status-backup {
+  margin-top: var(--e4); padding: var(--e3); font-size: var(--texto-sm); overflow-wrap: anywhere;
+  border: 1px solid var(--cor-borda); border-radius: var(--raio); background: var(--cor-superficie-2); color: var(--cor-texto-2);
+}
+.status-backup--ok { color: var(--cor-sucesso); background: var(--cor-sucesso-suave); border-color: var(--cor-sucesso-borda); }
+.status-backup--erro { color: var(--cor-erro); background: var(--cor-erro-suave); border-color: var(--cor-erro-borda); }
+.acoes-linha { display: flex; flex-wrap: wrap; align-items: center; gap: var(--e3); margin-top: var(--e3); }
+.secao-corpo.acoes-linha { margin-top: 0; }
+.sobre { display: grid; grid-template-columns: max-content 1fr; gap: var(--e2) var(--e4); margin: 0; }
+.sobre dt { color: var(--cor-texto-3); }
+.sobre dd { margin: 0; overflow-wrap: anywhere; }
+
+.dialogo-icone--neutro { background: var(--cor-primaria-suave); color: var(--cor-primaria); }
+
 /* ---------- Responsivo ---------- */
+@media (max-width: 1100px) {
+  .marca-texto { display: none; }
+}
 @media (max-width: 960px) {
-  .gerar-grade { grid-template-columns: 1fr; }
+  .gerar-grade, .versoes-grade { grid-template-columns: 1fr; }
+  .grade-campos { grid-template-columns: 1fr; }
+  .margens { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .painel-perguntas { position: static; max-height: none; }
   .secao { grid-template-columns: 1fr; gap: var(--e4); }
 }
 
 @media (max-width: 640px) {
+  .menu-item span { display: none; }
+  .status { display: none; }
+  .linha-campo { flex-direction: column; }
   .topo-conteudo, .principal { padding-left: var(--e4); padding-right: var(--e4); }
   .principal { padding-top: var(--e6); }
   .marca-sub { display: none; }

@@ -6,15 +6,20 @@
 //  - excluir NUNCA apaga: o arquivo é movido para dados/lixeira/;
 //  - excluir da lixeira tira o modelo do GERADOC, mas uma última cópia fica em dados/backup/<id>/;
 //  - arquivos ilegíveis são ignorados na listagem (e informados), mas nunca removidos.
+// v1.1: configuração de página (config), versões anteriores restauráveis, exportar/importar.
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { validarConfig, ErroConfig } from '../public/js/pagina.js';
 
 export const NOME_MAX = 120;
 export const CONTEUDO_MAX = 4 * 1024 * 1024; // 4 MB de HTML
 export const BACKUPS_POR_MODELO = 20;
+export const IMPORTACAO_MAX = 500; // modelos por arquivo importado
+export const FORMATO_EXPORTACAO = 'geradoc-modelos';
 
 const FORMATO_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const FORMATO_VERSAO = /^\d{13}-[0-9a-f]{8}$/;
 const TEMPORARIO_ORFAO_MS = 60 * 60 * 1000;
 
 export class ErroModelo extends Error {
@@ -32,7 +37,7 @@ function chaveNome(nome) {
   return normalizarNome(nome).toLocaleLowerCase('pt-BR');
 }
 
-function validarEntrada({ nome, conteudo } = {}) {
+function validarEntrada({ nome, conteudo, config } = {}) {
   const nomeLimpo = normalizarNome(nome);
   if (!nomeLimpo) throw new ErroModelo(400, 'O nome do modelo é obrigatório.');
   if (nomeLimpo.length > NOME_MAX) {
@@ -45,8 +50,17 @@ function validarEntrada({ nome, conteudo } = {}) {
   if (conteudoFinal.length > CONTEUDO_MAX) {
     throw new ErroModelo(413, 'O modelo é grande demais.');
   }
-  return { nome: nomeLimpo, conteudo: conteudoFinal };
+  let configFinal;
+  try {
+    configFinal = validarConfig(config);
+  } catch (erro) {
+    if (erro instanceof ErroConfig) throw new ErroModelo(400, erro.message);
+    throw erro;
+  }
+  return { nome: nomeLimpo, conteudo: conteudoFinal, config: configFinal };
 }
+
+const mesmaConfig = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 /**
  * Próximo nome livre: "Contrato (cópia)", "Contrato (cópia 2)"… Corta o nome base se passar do limite.
@@ -74,7 +88,8 @@ async function renomearComRetentativa(origem, destino) {
   }
 }
 
-async function gravarAtomico(arquivo, dados) {
+/** Grava JSON de forma atômica (temporário + renomear). */
+export async function gravarAtomico(arquivo, dados) {
   const temporario = `${arquivo}.${randomUUID()}.tmp`;
   await fs.writeFile(temporario, JSON.stringify(dados, null, 2), 'utf8');
   try {
@@ -85,25 +100,29 @@ async function gravarAtomico(arquivo, dados) {
   }
 }
 
-export function criarRepositorio({ pastaModelos, pastaLixeira, pastaBackup = path.join(path.dirname(pastaModelos), 'backup') }) {
+/** Remove temporários de gravações interrompidas (queda de energia etc.). Os .json nunca são tocados. */
+export async function limparTemporarios(pasta) {
+  for (const nome of await fs.readdir(pasta)) {
+    if (!nome.endsWith('.tmp')) continue;
+    const arquivo = path.join(pasta, nome);
+    try {
+      const { mtimeMs } = await fs.stat(arquivo);
+      if (Date.now() - mtimeMs > TEMPORARIO_ORFAO_MS) await fs.rm(arquivo);
+    } catch { /* outro processo pode ter mexido; ignora */ }
+  }
+}
+
+/**
+ * @param {{ pastaModelos: string, pastaLixeira: string, pastaBackup?: string, aoAlterar?: () => void }} opcoes
+ * aoAlterar é chamado depois de qualquer gravação (usado pelo backup externo).
+ */
+export function criarRepositorio({ pastaModelos, pastaLixeira, pastaBackup = path.join(path.dirname(pastaModelos), 'backup'), aoAlterar = () => {} }) {
   const arquivoDe = (id) => path.join(pastaModelos, `${id}.json`);
   const arquivoLixeira = (id) => path.join(pastaLixeira, `${id}.json`);
   let pastasProntas = false;
 
   function exigirId(id) {
     if (!FORMATO_ID.test(String(id))) throw new ErroModelo(404, 'Modelo não encontrado.');
-  }
-
-  /** Remove temporários de gravações interrompidas (queda de energia etc.). Os .json nunca são tocados. */
-  async function limparTemporarios(pasta) {
-    for (const nome of await fs.readdir(pasta)) {
-      if (!nome.endsWith('.tmp')) continue;
-      const arquivo = path.join(pasta, nome);
-      try {
-        const { mtimeMs } = await fs.stat(arquivo);
-        if (Date.now() - mtimeMs > TEMPORARIO_ORFAO_MS) await fs.rm(arquivo);
-      } catch { /* outro processo pode ter mexido; ignora */ }
-    }
   }
 
   async function garantirPastas() {
@@ -125,6 +144,11 @@ export function criarRepositorio({ pastaModelos, pastaLixeira, pastaBackup = pat
       throw new Error('não é um modelo do GERADOC válido');
     }
     if (typeof modelo.conteudo !== 'string') modelo.conteudo = '';
+    try {
+      modelo.config = validarConfig(modelo.config);
+    } catch {
+      modelo.config = validarConfig({}); // configuração estragada não impede abrir o texto
+    }
     return modelo;
   }
 
@@ -204,29 +228,31 @@ export function criarRepositorio({ pastaModelos, pastaLixeira, pastaBackup = pat
     },
 
     async criar(entrada) {
-      const { nome, conteudo } = validarEntrada(entrada);
+      const { nome, conteudo, config } = validarEntrada(entrada);
       await exigirNomeLivre(nome);
       const agora = new Date().toISOString();
-      const modelo = { id: randomUUID(), nome, conteudo, criadoEm: agora, atualizadoEm: agora, versaoFormato: 1 };
+      const modelo = { id: randomUUID(), nome, conteudo, config, criadoEm: agora, atualizadoEm: agora, versaoFormato: 2 };
       await gravarAtomico(arquivoDe(modelo.id), modelo);
+      aoAlterar();
       return modelo;
     },
 
     async atualizar(id, entrada) {
       const atual = await this.obter(id);
-      const { nome, conteudo } = validarEntrada({ conteudo: atual.conteudo, ...entrada });
+      const { nome, conteudo, config } = validarEntrada({ conteudo: atual.conteudo, config: atual.config, ...entrada });
       await exigirNomeLivre(nome, id);
-      if (nome === atual.nome && conteudo === atual.conteudo) return atual; // nada mudou
+      if (nome === atual.nome && conteudo === atual.conteudo && mesmaConfig(config, atual.config)) return atual; // nada mudou
       await guardarBackup(atual);
-      const modelo = { ...atual, nome, conteudo, atualizadoEm: new Date().toISOString() };
+      const modelo = { ...atual, nome, conteudo, config, atualizadoEm: new Date().toISOString(), versaoFormato: 2 };
       await gravarAtomico(arquivoDe(id), modelo);
+      aoAlterar();
       return modelo;
     },
 
     async duplicar(id) {
       const original = await this.obter(id);
       const nome = proximoNomeLivre(original.nome, 'cópia', await nomesOcupados());
-      return this.criar({ nome, conteudo: original.conteudo });
+      return this.criar({ nome, conteudo: original.conteudo, config: original.config });
     },
 
     async excluir(id) {
@@ -236,6 +262,7 @@ export function criarRepositorio({ pastaModelos, pastaLixeira, pastaBackup = pat
       // Registra a data da exclusão na lixeira e só então retira da pasta de modelos.
       await gravarAtomico(arquivoLixeira(id), { ...modelo, excluidoEm });
       await fs.rm(arquivoDe(id));
+      aoAlterar();
       return { id, nome: modelo.nome, excluidoEm };
     },
 
@@ -263,6 +290,7 @@ export function criarRepositorio({ pastaModelos, pastaLixeira, pastaBackup = pat
       if (renomeado) modelo.nome = proximoNomeLivre(modelo.nome, 'restaurado', ocupados);
       await gravarAtomico(arquivoDe(id), modelo);
       await fs.rm(arquivoLixeira(id));
+      aoAlterar();
       return { ...resumo(modelo), renomeado };
     },
 
@@ -272,7 +300,118 @@ export function criarRepositorio({ pastaModelos, pastaLixeira, pastaBackup = pat
       const naLixeira = await lerUm(arquivoLixeira(id), 'Modelo não encontrado na lixeira.');
       await guardarBackup(naLixeira);
       await fs.rm(arquivoLixeira(id));
+      aoAlterar();
       return { id, nome: naLixeira.nome };
+    },
+
+    // ---------- Versões anteriores (cópias em dados/backup/<id>/) ----------
+    async listarVersoes(id) {
+      await this.obter(id);
+      const pasta = path.join(pastaBackup, id);
+      let arquivos = [];
+      try {
+        arquivos = (await fs.readdir(pasta)).filter((a) => a.endsWith('.json')).sort().reverse();
+      } catch (erro) {
+        if (erro.code !== 'ENOENT') throw erro;
+      }
+      const versoes = [];
+      for (const arquivo of arquivos) {
+        const versao = path.basename(arquivo, '.json');
+        if (!FORMATO_VERSAO.test(versao)) continue;
+        try {
+          const copia = JSON.parse(await fs.readFile(path.join(pasta, arquivo), 'utf8'));
+          versoes.push({
+            versao,
+            nome: String(copia.nome ?? ''),
+            atualizadoEm: copia.atualizadoEm ?? null,
+            guardadoEm: new Date(Number(versao.slice(0, 13))).toISOString(),
+          });
+        } catch { /* cópia ilegível: não aparece */ }
+      }
+      return versoes;
+    },
+
+    async obterVersao(id, versao) {
+      exigirId(id);
+      if (!FORMATO_VERSAO.test(String(versao))) throw new ErroModelo(404, 'Versão não encontrada.');
+      let copia;
+      try {
+        copia = JSON.parse(await fs.readFile(path.join(pastaBackup, id, `${versao}.json`), 'utf8'));
+      } catch (erro) {
+        if (erro.code === 'ENOENT') throw new ErroModelo(404, 'Versão não encontrada.');
+        throw new ErroModelo(500, 'Esta versão está danificada e não pode ser aberta.');
+      }
+      let config;
+      try { config = validarConfig(copia.config); } catch { config = validarConfig({}); }
+      return {
+        versao,
+        nome: String(copia.nome ?? ''),
+        conteudo: typeof copia.conteudo === 'string' ? copia.conteudo : '',
+        config,
+        atualizadoEm: copia.atualizadoEm ?? null,
+      };
+    },
+
+    /** Volta o modelo para uma versão anterior. A versão atual vira mais uma cópia (dá para desfazer). */
+    async restaurarVersao(id, versao) {
+      const atual = await this.obter(id);
+      const copia = await this.obterVersao(id, versao);
+      const ocupados = await nomesOcupados(id);
+      const nomeMantido = !normalizarNome(copia.nome) || ocupados.has(chaveNome(copia.nome));
+      const modelo = await this.atualizar(id, {
+        nome: nomeMantido ? atual.nome : copia.nome,
+        conteudo: copia.conteudo,
+        config: copia.config,
+      });
+      return { modelo, nomeMantido };
+    },
+
+    // ---------- Exportar / importar ----------
+    async exportar(ids = null) {
+      const lista = ids ? await Promise.all(ids.map((id) => this.obter(id))) : (await lerPasta(pastaModelos)).itens;
+      return {
+        formato: FORMATO_EXPORTACAO,
+        versao: 1,
+        exportadoEm: new Date().toISOString(),
+        modelos: lista
+          .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }))
+          .map(({ nome, conteudo, config, criadoEm, atualizadoEm }) => ({ nome, conteudo, config, criadoEm, atualizadoEm })),
+      };
+    },
+
+    /**
+     * Importa modelos de um arquivo exportado (ou de um único modelo).
+     * Sempre cria modelos novos; nome repetido ganha "(importado)". Modelos com problema são listados, não importados.
+     */
+    async importar(dados) {
+      let entrada;
+      if (dados && typeof dados === 'object' && Array.isArray(dados.modelos)) entrada = dados.modelos;
+      else if (dados && typeof dados === 'object' && typeof dados.nome === 'string') entrada = [dados];
+      else throw new ErroModelo(400, 'Este arquivo não é uma exportação de modelos do GERADOC.');
+      if (entrada.length === 0) throw new ErroModelo(400, 'O arquivo não tem nenhum modelo.');
+      if (entrada.length > IMPORTACAO_MAX) throw new ErroModelo(400, `O arquivo tem modelos demais (máximo ${IMPORTACAO_MAX}).`);
+
+      const ocupados = await nomesOcupados();
+      const importados = [];
+      const ignorados = [];
+      for (const item of entrada) {
+        const nomeOriginal = normalizarNome(item?.nome) || '(sem nome)';
+        try {
+          const limpo = validarEntrada({ nome: item?.nome, conteudo: item?.conteudo ?? '', config: item?.config });
+          const renomeado = ocupados.has(chaveNome(limpo.nome));
+          const nome = renomeado ? proximoNomeLivre(limpo.nome, 'importado', ocupados) : limpo.nome;
+          const agora = new Date().toISOString();
+          const modelo = { id: randomUUID(), nome, conteudo: limpo.conteudo, config: limpo.config, criadoEm: agora, atualizadoEm: agora, versaoFormato: 2 };
+          await gravarAtomico(arquivoDe(modelo.id), modelo);
+          ocupados.add(chaveNome(nome));
+          importados.push({ id: modelo.id, nome, renomeado });
+        } catch (erro) {
+          if (!(erro instanceof ErroModelo)) throw erro;
+          ignorados.push({ nome: nomeOriginal, motivo: erro.message });
+        }
+      }
+      if (importados.length) aoAlterar();
+      return { importados, ignorados };
     },
   };
 }

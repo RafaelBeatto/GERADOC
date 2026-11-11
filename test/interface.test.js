@@ -7,20 +7,26 @@ import os from 'node:os';
 import path from 'node:path';
 import puppeteer from 'puppeteer-core';
 import { criarApp } from '../src/app.js';
-import { localizarNavegador } from '../src/pdf.js';
+import { localizarNavegador } from '../src/gerador.js';
 
 const executavel = localizarNavegador();
 const pular = !executavel && 'Edge/Chrome não encontrado';
 
 let pasta, pastaDownloads, app, servidor, url, navegador, pagina;
 const errosDaPagina = [];
+let atalhosCriados = 0;
+let encerrou = false;
 
 before(async () => {
   if (pular) return;
   pasta = await fs.mkdtemp(path.join(os.tmpdir(), 'geradoc-ui-'));
   pastaDownloads = path.join(pasta, 'downloads');
   await fs.mkdir(pastaDownloads);
-  app = criarApp({ pastaDados: path.join(pasta, 'dados') });
+  app = criarApp({
+    pastaDados: path.join(pasta, 'dados'),
+    criarAtalho: async () => { atalhosCriados += 1; return 'C:\\falso\\GERADOC.lnk'; },
+    aoEncerrar: () => { encerrou = true; },
+  });
   servidor = app.listen(0, '127.0.0.1');
   await new Promise((r) => servidor.once('listening', r));
   url = `http://127.0.0.1:${servidor.address().port}/`;
@@ -38,7 +44,9 @@ before(async () => {
 after(async () => {
   if (pular) return;
   await navegador?.close();
-  await app.locals.pdf.fechar();
+  await app.locals.gerador.fechar();
+  app.locals.backup.cancelar();
+  await app.locals.backup.parar();
   await new Promise((r) => servidor.close(r));
   await fs.rm(pasta, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
@@ -84,6 +92,29 @@ async function irPara(hash, tela) {
   await pagina.evaluate((h) => { location.hash = h; }, hash);
   await telaVisivel(tela);
   await pagina.waitForNetworkIdle({ idleTime: 150 });
+}
+
+async function esperarDownload(extensao, antes) {
+  for (let i = 0; i < 80; i += 1) {
+    const novos = (await fs.readdir(pastaDownloads)).filter((a) => a.endsWith(`.${extensao}`) && !antes.includes(a));
+    if (novos.length) return novos[0];
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return null;
+}
+
+/** Seleciona tudo (Ctrl+A) e apaga, como o usuário faria. */
+async function apagarCampo(seletor) {
+  await pagina.click(seletor);
+  await pagina.keyboard.down('Control');
+  await pagina.keyboard.press('KeyA');
+  await pagina.keyboard.up('Control');
+  await pagina.keyboard.press('Backspace');
+}
+
+async function apiTeste(metodo, caminho, corpo) {
+  const r = await fetch(`${url}api${caminho}`, { method: metodo, headers: { 'Content-Type': 'application/json' }, body: corpo && JSON.stringify(corpo) });
+  return r.json();
 }
 
 test('fluxo completo pela interface', { skip: pular }, async (t) => {
@@ -189,6 +220,145 @@ test('fluxo completo pela interface', { skip: pular }, async (t) => {
     assert.equal(conteudo.subarray(0, 5).toString(), '%PDF-');
   });
 
+  let recibo;
+  await t.test('tipos de campo: máscara, valor por extenso, validação e Word', async () => {
+    recibo = await apiTeste('POST', '/modelos', {
+      nome: 'Recibo',
+      conteudo: '<p>Recebi de [NOME], CPF [CPF:cpf], [VALOR:moeda] ([VALOR:extenso]) em [HOJE:extenso].</p>',
+      config: { cabecalho: '<p>Empresa [NOME]</p>', numeracao: 'centro' },
+    });
+    await irPara(`#/gerar/${recibo.id}`, 'tela-gerar');
+    const rotulos = await pagina.$$eval('#perguntas .rotulo', (r) => r.map((x) => x.firstChild.textContent.trim()));
+    assert.deepEqual(rotulos, ['NOME', 'CPF', 'VALOR'], '[HOJE] não vira pergunta');
+    assert.match(await pagina.$eval('#previa-numero', (el) => !el.hidden && el.textContent), /Página 1 de 1/);
+
+    await pagina.type('#resposta-0', 'Ana Souza');
+    await pagina.type('#resposta-1', '12345678900');
+    assert.equal(await pagina.$eval('#resposta-1', (el) => el.value), '123.456.789-00', 'máscara do CPF');
+    await pagina.type('#resposta-2', '1500');
+    await pagina.focus('#resposta-0'); // sai do campo de valor: formata
+    assert.equal(await pagina.$eval('#resposta-2', (el) => el.value), '1.500,00');
+    const exemplo = await pagina.$$eval('.exemplo-resposta', (els) => els.map((e) => e.textContent));
+    assert.ok(exemplo.some((e) => e.includes('R$ 1.500,00 · mil e quinhentos reais')), exemplo.join(' | '));
+    const previa = await pagina.$eval('#folha', (el) => el.textContent);
+    assert.match(previa, /Empresa Ana Souza/, 'cabeçalho na pré-visualização');
+    assert.match(previa, /R\$ 1\.500,00 \(mil e quinhentos reais\) em \d{1,2}º? de [a-zç]+ de \d{4}/);
+
+    // CPF inválido não deixa gerar.
+    await pagina.click('#botao-word');
+    await pagina.waitForSelector('#erro-respostas:not([hidden])');
+    assert.match(await pagina.$eval('#erro-respostas', (el) => el.textContent), /CPF inválido/);
+
+    await apagarCampo('#resposta-1');
+    await pagina.type('#resposta-1', '52998224725');
+    await capturar('08-gerar-tipos');
+    const antes = await fs.readdir(pastaDownloads);
+    await pagina.click('#botao-word');
+    await esperarAviso('Word gerado');
+    const docx = await esperarDownload('docx', antes);
+    assert.match(docx ?? '', /^Recibo - \d{4}-\d{2}-\d{2}\.docx$/);
+    const conteudo = await fs.readFile(path.join(pastaDownloads, docx));
+    assert.equal(conteudo.subarray(0, 2).toString(), 'PK', '.docx é um zip');
+  });
+
+  await t.test('histórico: gerar de novo abre com as mesmas respostas; últimas respostas', async () => {
+    await irPara('#/historico', 'tela-historico');
+    const linhas = await pagina.$$eval('#lista-historico tr', (ls) => ls.map((l) => l.querySelector('.modelo-nome').textContent));
+    assert.ok(linhas[0].startsWith('Recibo · Word'), linhas.join(' | '));
+    assert.ok(linhas.some((l) => l.startsWith('Declaração de residência · PDF')));
+    await capturar('09-historico');
+    await pagina.click('#lista-historico tr:first-child a.botao');
+    await telaVisivel('tela-gerar');
+    await pagina.waitForNetworkIdle({ idleTime: 150 });
+    assert.equal(await pagina.$eval('#resposta-1', (el) => el.value), '529.982.247-25');
+
+    await pagina.click('#botao-limpar');
+    await irPara(`#/gerar/${recibo.id}`, 'tela-gerar');
+    assert.equal(await pagina.$eval('#ultimas-respostas', (el) => el.hidden), false);
+    await pagina.click('#botao-ultimas');
+    assert.equal(await pagina.$eval('#resposta-0', (el) => el.value), 'Ana Souza');
+    const sugestoes = await pagina.$$eval('#perguntas datalist option', (os) => os.map((o) => o.value));
+    assert.ok(sugestoes.includes('Ana Souza'), 'sugere respostas já usadas');
+  });
+
+  await t.test('editor: inserir campo, página, rodapé; versões anteriores', async () => {
+    await irPara(`#/editar/${recibo.id}`, 'tela-editor');
+    await pagina.click('#editor .ql-editor');
+    await pagina.keyboard.down('Control');
+    await pagina.keyboard.press('End');
+    await pagina.keyboard.up('Control');
+    await pagina.type('#inserir-campo-nome', 'vencimento');
+    await pagina.select('#inserir-campo-tipo', 'data-extenso');
+    await pagina.click('#inserir-campo-botao');
+    await pagina.waitForFunction(() => [...document.querySelectorAll('#lista-campos-editor .chip')].some((c) => c.textContent.startsWith('VENCIMENTO · data')));
+    await pagina.select('#cfg-fonte', 'Georgia');
+    await pagina.select('#cfg-papel', 'Ofício');
+    await pagina.click('#editor-rodape .ql-editor');
+    await pagina.keyboard.type('Rua Exemplo, 100');
+
+    // Margem impossível: avisa e não salva.
+    await apagarCampo('#cfg-m-esquerda');
+    await pagina.keyboard.type('20');
+    await pagina.click('#botao-salvar');
+    await pagina.waitForSelector('#erro-config:not([hidden])');
+    await apagarCampo('#cfg-m-esquerda');
+    await pagina.keyboard.type('3');
+    await capturar('10-editor-config');
+    await pagina.click('#botao-salvar');
+    await telaVisivel('tela-lista');
+    await esperarAviso('salvo');
+
+    const salvo = await apiTeste('GET', `/modelos/${recibo.id}`);
+    assert.match(salvo.conteudo, /\[VENCIMENTO:data-extenso\]/);
+    assert.equal(salvo.config.fonte, 'Georgia');
+    assert.equal(salvo.config.papel, 'Ofício');
+    assert.equal(salvo.config.margens.esquerda, 3);
+    assert.match(salvo.config.rodape, /Rua Exemplo, 100/);
+    assert.match(salvo.config.cabecalho, /Empresa \[NOME\]/, 'cabeçalho mantido');
+
+    await irPara(`#/versoes/${recibo.id}`, 'tela-versoes');
+    await pagina.waitForSelector('#botao-restaurar-versao:not([disabled])');
+    assert.equal(await pagina.$$eval('#lista-versoes li', (l) => l.length), 1);
+    await capturar('11-versoes');
+    await pagina.click('#botao-restaurar-versao');
+    await pagina.waitForSelector('#dialogo-confirmar[open]');
+    await pagina.click('#dialogo-botao');
+    await esperarAviso('Versão restaurada');
+    await telaVisivel('tela-editor');
+    const restaurado = await apiTeste('GET', `/modelos/${recibo.id}`);
+    assert.doesNotMatch(restaurado.conteudo, /VENCIMENTO/);
+    assert.equal(restaurado.config.fonte, 'Segoe UI');
+    assert.equal((await apiTeste('GET', `/modelos/${recibo.id}/versoes`)).length, 2, 'a versão desfeita ficou guardada');
+    await irPara('#/', 'tela-lista');
+  });
+
+  await t.test('configurações: backup externo, atalho, exportar e importar', async () => {
+    const nuvem = path.join(pasta, 'OneDrive');
+    await fs.mkdir(nuvem);
+    await irPara('#/configuracoes', 'tela-configuracoes');
+    await pagina.type('#cfg-pasta-backup', nuvem);
+    await pagina.click('#botao-salvar-backup');
+    await esperarAviso('Backup externo ligado');
+    assert.match(await pagina.$eval('#status-backup', (el) => el.textContent), /Último backup/);
+    assert.ok((await fs.readdir(path.join(nuvem, 'GERADOC-backup', 'modelos'))).some((a) => a.startsWith(recibo.id)));
+
+    await pagina.click('#botao-atalho');
+    await esperarAviso('Atalho GERADOC criado');
+    assert.equal(atalhosCriados, 1);
+    await capturar('12-configuracoes');
+
+    const exportado = await apiTeste('GET', '/exportar');
+    const arquivo = path.join(pasta, 'exportado.json');
+    await fs.writeFile(arquivo, JSON.stringify(exportado));
+    const entrada = await pagina.$('#arquivo-importar');
+    await entrada.uploadFile(arquivo);
+    await esperarAviso('importados');
+    await telaVisivel('tela-lista');
+    await pagina.waitForNetworkIdle({ idleTime: 150 });
+    const nomes = await nomesNaTabela('lista-modelos');
+    assert.ok(nomes.includes('Recibo (importado)'), nomes.join(' | '));
+  });
+
   await t.test('avisa sobre arquivo de modelo danificado', async () => {
     await fs.writeFile(path.join(pasta, 'dados', 'modelos', 'estragado.json'), '{ quebrado');
     await irPara('#/lixeira', 'tela-lixeira');
@@ -196,6 +366,16 @@ test('fluxo completo pela interface', { skip: pular }, async (t) => {
     const alerta = await pagina.$eval('#alerta-ilegiveis', (el) => !el.hidden && el.textContent);
     assert.match(alerta || '', /estragado\.json/);
     await capturar('07-aviso-danificado');
+  });
+
+  await t.test('encerrar pela tela', async () => {
+    await irPara('#/configuracoes', 'tela-configuracoes');
+    await pagina.click('#botao-encerrar');
+    await pagina.waitForSelector('#dialogo-confirmar[open]');
+    await pagina.click('#dialogo-botao');
+    await telaVisivel('tela-encerrado');
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(encerrou, true);
   });
 
   assert.deepEqual(errosDaPagina, [], 'sem erros no console da página');
