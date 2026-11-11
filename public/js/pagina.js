@@ -25,6 +25,7 @@ export const TAMANHO_MIN = 8;
 export const TAMANHO_MAX = 20;
 export const AREA_UTIL_MIN = 4; // cm de texto que precisam sobrar entre as margens
 export const CABECALHO_MAX = 1024 * 1024;
+export const NOME_ARQUIVO_MAX = 150;
 
 export const CONFIG_PADRAO = Object.freeze({
   papel: 'A4',
@@ -35,6 +36,7 @@ export const CONFIG_PADRAO = Object.freeze({
   cabecalho: '',
   rodape: '',
   numeracao: 'nenhuma',
+  nomeArquivo: '', // v1.2: nome do arquivo gerado, com campos ("Contrato - [NOME]"); vazio = nome do modelo + data
 });
 
 export class ErroConfig extends Error {}
@@ -89,7 +91,14 @@ export function validarConfig(config) {
   const numeracao = config.numeracao ?? c.numeracao;
   if (!Object.hasOwn(NUMERACAO, numeracao)) throw new ErroConfig('Numeração de páginas inválida.');
 
-  return { papel, orientacao, margens, fonte, tamanhoFonte: Math.round(tamanhoFonte * 2) / 2, cabecalho, rodape, numeracao };
+  const nomeArquivo = config.nomeArquivo ?? '';
+  if (typeof nomeArquivo !== 'string') throw new ErroConfig('Nome do arquivo inválido.');
+  if (nomeArquivo.trim().length > NOME_ARQUIVO_MAX) throw new ErroConfig(`O nome do arquivo pode ter no máximo ${NOME_ARQUIVO_MAX} caracteres.`);
+
+  return {
+    papel, orientacao, margens, fonte, tamanhoFonte: Math.round(tamanhoFonte * 2) / 2, cabecalho, rodape, numeracao,
+    nomeArquivo: nomeArquivo.replace(/\s+/g, ' ').trim(),
+  };
 }
 
 /** Configuração completa sem lançar erro (para exibir modelos antigos ou com algo estranho). */

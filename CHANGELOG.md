@@ -1,5 +1,27 @@
 # Changelog
 
+## [Não lançado]
+### Alterado
+- Visual novo "mesa de escritório": papel creme pontilhado, faixa superior em tinta escura, títulos com serifa grifados de marca-texto amarelo, painéis e botões com contorno e sombra "carimbada", campos dos documentos grifados como marca-texto (respondidos) ou em vermelho tracejado (faltando), pré-visualização sobre uma base de corte verde quadriculada, "últimas respostas" como post-it, seções do editor numeradas (01, 02…). Só fontes do Windows: continua funcionando sem internet. Nenhuma mudança de comportamento.
+
+## [1.2.0] - 2026-11-11
+### Adicionado
+- **Trechos condicionais** `[SE CAMPO] … [SENÃO] … [FIM SE]`: o trecho só entra no documento se a resposta for "sim" (ou estiver preenchida). Também `[SE ESTADO CIVIL = casado | união estável]`, `[SE VALOR > 1000]`, `[SE NÃO TEM FIADOR]` e condições dentro de condições. As perguntas de um trecho escondido **não são feitas** nem exigidas. Parágrafo só com o marcador some do documento.
+- **Contas** `[=VALOR * QTD]`, `[=VALOR * 10%:extenso]`, `[=(A + B) / 2]` e **com datas**: `[=INÍCIO + 12 meses:data-extenso]`, `[=HOJE + 30 dias]`, `[=FIM - INÍCIO]` (dias). O resultado sai em reais quando a conta usa um valor em reais. Conta impossível (divisão por zero, por exemplo) não deixa gerar.
+- **Lista de opções** `[ESTADO CIVIL: solteiro | casado | viúvo]`: a pergunta vira uma caixa de escolha.
+- **Sim ou não** `[TEM FIADOR:sim-nao]` (caixa de marcar; um campo usado só em `[SE …]` já vira sim/não sozinho).
+- **Campos opcionais** `[COMPLEMENTO:opcional]`, `[TEL:telefone opcional]`: podem ficar em branco e somem do documento.
+- **Texto longo** `[OBS:texto-longo]`: resposta com várias linhas (as quebras de linha vão para o PDF e o Word).
+- Formatos novos: `nome` (Maria da Silva), `minusculas`, `email`, `hora`, `porcento`, `dia`, `mes`, `ano`, `dia-semana`.
+- **Gerar em lote**: uma planilha (colada do Excel ou arquivo `.csv`), um documento por linha, tudo baixado num `.zip`. Baixa a planilha pronta com as colunas do modelo, confere linha por linha antes de gerar, mostra o progresso, permite cancelar e relata as linhas que não puderam ser geradas. Cada documento entra no histórico.
+- **Nome do arquivo gerado** por modelo, com campos: `Contrato - [NOME] - [HOJE]` → `Contrato - Ana Souza - 11-11-2026.pdf`.
+- Editor: **Inserir campo** com opções e "opcional", botão **Trecho condicional** (envolve o texto selecionado) e um resumo de tudo o que dá para escrever entre colchetes.
+- Tela Gerar: botões **Editar modelo** e **Gerar em lote**.
+
+### Alterado
+- Respostas podem ter até 10.000 caracteres (antes 2.000), por causa do texto longo.
+- Modelos antigos continuam iguais: `[SE …]` sem `[FIM SE]` e `[=…]` que não é uma conta seguem sendo campos comuns.
+
 ## [1.1.0] - 2026-11-11
 ### Adicionado
 - **Word (.docx)**: botão **Gerar Word** ao lado de Gerar PDF, com a mesma formatação, cabeçalho, rodapé, numeração, imagens, listas e quebras de página.

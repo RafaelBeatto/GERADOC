@@ -11,6 +11,7 @@ import path from 'node:path';
 import puppeteer from 'puppeteer-core';
 import { montarDocx } from './docx.js';
 import { configOuPadrao, htmlVazio, tamanhoPagina } from '../public/js/pagina.js';
+import { completarRespostas, mapaDeTipos, preencherTexto } from '../public/js/campos.js';
 
 // O navegador sem janela é fechado depois de um tempo sem uso, para não ocupar memória.
 const OCIOSO_MS = 5 * 60 * 1000;
@@ -61,6 +62,35 @@ export function nomeArquivo(nomeModelo, extensao = 'pdf', data = new Date()) {
 }
 
 export const nomeArquivoPdf = (nome, data) => nomeArquivo(nome, 'pdf', data);
+
+/** Tira o que o Windows não aceita em nomes de arquivo ("/" de datas vira "-"). */
+export function limparNomeArquivo(texto) {
+  return String(texto ?? '')
+    .replace(/\//g, '-')
+    .replace(/[<>:"\\|?*\u0000-\u001f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[. ]+$/, '')
+    .slice(0, 150);
+}
+
+/**
+ * Nome do documento gerado. Se o modelo define um nome com campos ("Contrato - [NOME]"), usa as respostas;
+ * senão, "<modelo> - <data>". "sufixo" (usado no lote) entra quando o modelo não define o nome.
+ * @param {{ nome: string, config?: object }} modelo  @param {object[]} campos lista devolvida por gerar()
+ */
+export function nomeDocumento(modelo, respostas, campos, extensao, { data = new Date(), sufixo = '' } = {}) {
+  const padrao = configOuPadrao(modelo.config).nomeArquivo;
+  if (padrao) {
+    const opcionais = campos.filter((c) => c.opcional).map((c) => c.chave);
+    const texto = preencherTexto(padrao, completarRespostas(respostas, data, campos), mapaDeTipos(campos), opcionais);
+    const base = limparNomeArquivo(texto.replace(/\[[^\]]*\]/g, ' '));
+    if (base) return `${base}.${extensao}`;
+  }
+  const base = limparNomeArquivo(sufixo).slice(0, 60).trim();
+  if (!base) return nomeArquivo(modelo.nome, extensao, data);
+  return `${limparNomeArquivo(modelo.nome).slice(0, 100).trim() || 'documento'} - ${base}.${extensao}`;
+}
 
 function escaparHtml(texto) {
   return String(texto).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -191,27 +221,31 @@ export function criarGerador({ raiz, caminhoNavegador } = {}) {
     };
     const resultado = await pagina.evaluate(async (urlCampos, urlEstrutura, partes, resp, agora, formato) => {
       const campos = await import(urlCampos);
-      const lista = campos.camposDoHtml(partes.cabecalho, partes.conteudo, partes.rodape);
-      const respostas = campos.completarRespostas(resp, new Date(agora));
-      const pendentes = campos.camposPendentes(lista, respostas);
+      const htmls = [partes.cabecalho, partes.conteudo, partes.rodape];
+      const lista = campos.camposDoHtml(...htmls);
+      const respostas = campos.completarRespostas(resp, new Date(agora), lista);
+      // Campos de trechos escondidos por [SE …] não precisam de resposta.
+      const ativos = campos.camposAtivosDoHtml(htmls, respostas);
+      const pendentes = campos.camposPendentes(lista, respostas, ativos);
       if (pendentes.length) return { pendentes };
-      const invalidos = campos.camposInvalidos(lista, respostas);
+      const invalidos = campos.camposInvalidos(lista, respostas, ativos);
       if (invalidos.length) return { invalidos };
 
-      const tipos = campos.mapaDeTipos(lista);
+      const problemas = [];
       const alvos = { conteudo: 'documento', cabecalho: 'cabecalho', rodape: 'rodape' };
       for (const [parte, id] of Object.entries(alvos)) {
         const el = document.getElementById(id);
-        el.innerHTML = partes[parte] ? campos.preencherHtml(partes[parte], respostas, { tipos }) : '';
+        el.innerHTML = partes[parte] ? campos.preencherHtml(partes[parte], respostas, { campos: lista, problemas }) : '';
         // Por garantia, nada executável sobra no documento.
         el.querySelectorAll('script,iframe,object,embed').forEach((x) => x.remove());
       }
+      if (problemas.length) return { contas: [...new Set(problemas)] };
       await document.fonts.ready;
       await Promise.all([...document.images].map((img) => img.decode().catch(() => {})));
 
       const cab = document.getElementById('cabecalho');
       const rod = document.getElementById('rodape');
-      const saida = { campos: lista.map(({ chave, automatico }) => ({ chave, automatico })) };
+      const saida = { campos: lista.map(({ chave, automatico, tipo, opcional }) => ({ chave, automatico, tipo, opcional })) };
       if (formato === 'docx') {
         const { estruturaDocx } = await import(urlEstrutura);
         saida.estruturas = {
@@ -233,6 +267,9 @@ export function criarGerador({ raiz, caminhoNavegador } = {}) {
     }
     if (resultado.invalidos) {
       throw new ErroGeracao(400, `Resposta inválida: ${resultado.invalidos.map((i) => `${i.chave} (${i.mensagem})`).join(', ')}.`);
+    }
+    if (resultado.contas) {
+      throw new ErroGeracao(400, `Não foi possível fazer a conta ${resultado.contas.join(', ')}. Confira os números e datas usados nela.`);
     }
     return { ...resultado, config };
   }
@@ -277,7 +314,7 @@ export function criarGerador({ raiz, caminhoNavegador } = {}) {
      * @param {{ nome: string, conteudo: string, config?: object }} modelo
      * @param {Record<string,string>} respostas
      * @param {'pdf'|'docx'} [formato]
-     * @returns {Promise<{ arquivo: Buffer, campos: {chave: string, automatico: boolean}[] }>}
+     * @returns {Promise<{ arquivo: Buffer, campos: {chave: string, automatico: boolean, tipo: string, opcional: boolean}[] }>}
      */
     async gerar(modelo, respostas, formato = 'pdf', agora = Date.now()) {
       if (!FORMATOS[formato]) throw new ErroGeracao(400, 'Formato de documento inválido.');

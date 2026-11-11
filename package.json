@@ -1,6 +1,6 @@
 {
   "name": "geradoc",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Gerador local de documentos em PDF e Word a partir de modelos com campos [CAMPO].",
   "private": true,
   "type": "module",

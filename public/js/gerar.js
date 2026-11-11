@@ -1,12 +1,14 @@
 // GERADOC — tela de gerar documento: perguntas (por tipo), pré-visualização e download em PDF ou Word.
+// v1.2: perguntas de sim/não, lista de opções, texto longo, hora e e-mail; campos opcionais;
+// perguntas que só aparecem quando o trecho [SE …] delas vale; contas ([=…]) na pré-visualização.
 import { $, api, avisar, baixar, chip, formatarData, nomeDoCabecalho } from './util.js';
 import {
-  camposDoModelo, camposInvalidos, camposPendentes, completarRespostas, formatarValor, FORMATOS,
-  lerNumero, mapaDeTipos, preencherHtml, validarResposta,
+  camposAtivosDoModelo, camposDoModelo, camposInvalidos, camposPendentes, completarRespostas, formatarValor,
+  lerNumero, preencherHtml, rotuloTipo, validarResposta, verdadeiro,
 } from './campos.js';
 import { configOuPadrao, descreverPagina, htmlVazio, tamanhoPagina } from './pagina.js';
 
-let geracao = null; // { modelo, config, campos, perguntas, tipos, respostas, ultima }
+let geracao = null; // { modelo, config, campos, perguntas, respostas, sugestoes, ultima, ativos }
 let gerando = false;
 
 export function gerarTemAlteracoes() {
@@ -36,7 +38,7 @@ function aplicarMascara(valor, tipo) {
 
 const PLACEHOLDERS = {
   cpf: '000.000.000-00', cnpj: '00.000.000/0000-00', cep: '00000-000', telefone: '(00) 00000-0000',
-  moeda: '0,00', numero: 'Ex.: 10',
+  moeda: '0,00', numero: 'Ex.: 10', email: 'nome@exemplo.com',
 };
 
 // ---------- Pré-visualização ----------
@@ -55,10 +57,15 @@ function aplicarPagina(config) {
   $('descricao-pagina').textContent = descreverPagina(config);
 }
 
+/** Respostas como o servidor vai enxergar: [HOJE] preenchido e "sim ou não" sem marcar = não. */
+function respostasCompletas() {
+  return completarRespostas(geracao.respostas, new Date(), geracao.campos);
+}
+
 function atualizarPrevia() {
-  const { modelo, config, campos, perguntas, tipos } = geracao;
-  const respostas = completarRespostas(geracao.respostas);
-  const opcoes = { marcar: true, tipos };
+  const { modelo, config, campos, perguntas } = geracao;
+  const respostas = respostasCompletas();
+  const opcoes = { marcar: true, campos };
   $('previa').innerHTML = modelo.conteudo
     ? preencherHtml(modelo.conteudo, respostas, opcoes)
     : '<p class="previa-vazia">Este modelo está vazio. Edite-o para colocar o texto do documento.</p>';
@@ -73,11 +80,18 @@ function atualizarPrevia() {
   $('previa-numero').hidden = !temNumero;
   $('previa-numero').style.textAlign = config.numeracao === 'centro' ? 'center' : 'right';
 
-  const total = perguntas.length;
-  const feitas = total - camposPendentes(campos, geracao.respostas).length;
-  $('progresso-contagem').textContent = total
-    ? `${feitas} de ${total} ${total === 1 ? 'pergunta respondida' : 'perguntas respondidas'}`
-    : 'Nenhuma pergunta';
+  // Perguntas de trechos escondidos por [SE …] somem da lista (e não precisam de resposta).
+  const ativos = camposAtivosDoModelo({ ...modelo, config }, respostas);
+  geracao.ativos = ativos;
+  for (const grupo of $('perguntas').children) grupo.hidden = !ativos.has(grupo.dataset.campo);
+
+  const obrigatorias = perguntas.filter((c) => ativos.has(c.chave) && !c.opcional && c.tipo !== 'sim-nao');
+  const total = obrigatorias.length;
+  const feitas = total - camposPendentes(campos, respostas, ativos).length;
+  let contagem = 'Nenhuma pergunta';
+  if (total) contagem = `${feitas} de ${total} ${total === 1 ? 'pergunta respondida' : 'perguntas respondidas'}`;
+  else if (perguntas.length) contagem = 'Nada obrigatório';
+  $('progresso-contagem').textContent = contagem;
   $('progresso-preenchido').style.width = total ? `${(feitas / total) * 100}%` : '100%';
   $('botao-gerar').classList.toggle('botao--pronto', feitas === total);
 }
@@ -96,36 +110,65 @@ function destacarNaPrevia(chave, rolar = true) {
 /** "No documento: R$ 1.500,00 · mil e quinhentos reais" (só para campos com formato). */
 function textoExemplo(campo, valor) {
   if (!String(valor).trim()) return '';
-  if (campo.tipo === 'texto' && !campo.formatos.includes('maiusculas')) return '';
-  const vistos = [...new Set(campo.formatos.map((f) => formatarValor(valor, f === 'texto' ? null : f, campo.tipo)))];
+  if (['sim-nao', 'opcoes', 'texto-longo'].includes(campo.tipo)) return '';
+  const formatos = campo.formatos.filter((f) => f !== 'texto' && f !== 'opcoes');
+  if (campo.tipo === 'texto' && !formatos.length) return '';
+  const vistos = [...new Set((formatos.length ? formatos : [null]).map((f) => formatarValor(valor, f, campo.tipo)))];
   return `No documento: ${vistos.join(' · ')}`;
+}
+
+function valorDe(entrada) {
+  if (entrada.type === 'checkbox') return entrada.checked ? 'sim' : 'não';
+  return entrada.value;
 }
 
 function criarEntrada(campo, indice) {
   const { chave, tipo } = campo;
-  const entrada = document.createElement('input');
-  entrada.id = `resposta-${indice}`;
-  entrada.className = 'campo-texto';
-  entrada.autocomplete = 'off';
-  entrada.dataset.campo = chave;
-  entrada.dataset.tipo = tipo;
-  if (tipo === 'data') {
-    entrada.type = 'date';
+  const guardado = geracao.respostas[chave] ?? '';
+  let entrada;
+  if (tipo === 'opcoes') {
+    entrada = document.createElement('select');
+    entrada.add(new Option(campo.opcional ? '(nenhuma)' : 'Escolha…', ''));
+    for (const o of campo.opcoes ?? []) entrada.add(new Option(o, o));
+    const igual = (campo.opcoes ?? []).find((o) => o.toLocaleLowerCase('pt-BR') === String(guardado).trim().toLocaleLowerCase('pt-BR'));
+    entrada.value = igual ?? '';
+  } else if (tipo === 'texto-longo') {
+    entrada = document.createElement('textarea');
+    entrada.rows = 4;
+    entrada.value = guardado;
   } else {
-    entrada.type = 'text';
-    if (PLACEHOLDERS[tipo]) entrada.placeholder = PLACEHOLDERS[tipo];
-    if (MASCARAS[tipo]) entrada.inputMode = 'numeric';
-    if (tipo === 'moeda' || tipo === 'numero') entrada.inputMode = 'decimal';
-    const sugestoes = geracao.sugestoes[chave];
-    if (sugestoes?.length) {
-      const lista = document.createElement('datalist');
-      lista.id = `sugestoes-${indice}`;
-      for (const s of sugestoes) lista.append(new Option(s));
-      entrada.setAttribute('list', lista.id);
-      entrada.lista = lista; // vai para o DOM junto com a entrada (montarPerguntas)
+    entrada = document.createElement('input');
+    entrada.autocomplete = 'off';
+    if (tipo === 'sim-nao') {
+      entrada.type = 'checkbox';
+      entrada.checked = verdadeiro(guardado);
+    } else if (tipo === 'data') {
+      entrada.type = 'date';
+      entrada.value = guardado;
+    } else if (tipo === 'hora') {
+      entrada.type = 'time';
+      entrada.value = guardado;
+    } else {
+      entrada.type = 'text';
+      if (PLACEHOLDERS[tipo]) entrada.placeholder = PLACEHOLDERS[tipo];
+      if (MASCARAS[tipo]) entrada.inputMode = 'numeric';
+      if (tipo === 'moeda' || tipo === 'numero') entrada.inputMode = 'decimal';
+      if (tipo === 'email') entrada.inputMode = 'email';
+      const sugestoes = geracao.sugestoes[chave];
+      if (sugestoes?.length) {
+        const lista = document.createElement('datalist');
+        lista.id = `sugestoes-${indice}`;
+        for (const s of sugestoes) lista.append(new Option(s));
+        entrada.setAttribute('list', lista.id);
+        entrada.lista = lista; // vai para o DOM junto com a entrada (montarPerguntas)
+      }
+      entrada.value = guardado;
     }
   }
-  entrada.value = geracao.respostas[chave] ?? '';
+  entrada.id = `resposta-${indice}`;
+  entrada.className = tipo === 'sim-nao' ? 'entrada-resposta' : 'campo-texto entrada-resposta';
+  entrada.dataset.campo = chave;
+  entrada.dataset.tipo = tipo;
   return entrada;
 }
 
@@ -137,6 +180,15 @@ function mostrarErroCampo(entrada, mensagem) {
   entrada.classList.toggle('campo-texto--erro', Boolean(mensagem));
 }
 
+/** Próxima pergunta visível depois da de índice dado (ou o botão Gerar PDF). */
+function focarProxima(indice) {
+  for (let i = indice + 1; i < geracao.perguntas.length; i += 1) {
+    const proxima = $(`resposta-${i}`);
+    if (proxima && !proxima.closest('.pergunta').hidden) return proxima.focus();
+  }
+  return $('botao-gerar').focus();
+}
+
 function montarPerguntas() {
   const { perguntas, respostas } = geracao;
   const container = $('perguntas');
@@ -144,24 +196,32 @@ function montarPerguntas() {
   perguntas.forEach((campo, indice) => {
     const grupo = document.createElement('div');
     grupo.className = 'pergunta';
+    grupo.dataset.campo = campo.chave;
 
     const rotulo = document.createElement('label');
     rotulo.className = 'rotulo';
     rotulo.htmlFor = `resposta-${indice}`;
     rotulo.textContent = campo.chave;
-    if (campo.tipo !== 'texto') rotulo.append(' ', chip(FORMATOS[campo.tipo]?.rotulo ?? campo.tipo, 'chip chip--mini chip--tipo'));
+    if (campo.tipo !== 'texto') rotulo.append(' ', chip(rotuloTipo(campo.tipo), 'chip chip--mini chip--tipo'));
+    if (campo.opcional) rotulo.append(' ', chip('opcional', 'chip chip--mini'));
     if (campo.ocorrencias > 1) rotulo.append(' ', chip(`aparece ${campo.ocorrencias}×`, 'chip chip--mini'));
 
     const entrada = criarEntrada(campo, indice);
-    const caixa = document.createElement('div');
+    let caixa = document.createElement('div');
     caixa.className = campo.tipo === 'moeda' ? 'entrada-moeda' : 'entrada';
     if (campo.tipo === 'moeda') caixa.append(Object.assign(document.createElement('span'), { className: 'prefixo', textContent: 'R$' }));
-    caixa.append(entrada);
+    if (campo.tipo === 'sim-nao') {
+      caixa = document.createElement('label');
+      caixa.className = 'entrada-sim-nao';
+      caixa.append(entrada, Object.assign(document.createElement('span'), { textContent: 'Sim' }));
+    } else {
+      caixa.append(entrada);
+    }
     if (entrada.lista) caixa.append(entrada.lista);
 
     const exemplo = document.createElement('p');
     exemplo.className = 'exemplo-resposta';
-    exemplo.textContent = textoExemplo(campo, entrada.value);
+    exemplo.textContent = textoExemplo(campo, valorDe(entrada));
     const erro = document.createElement('p');
     erro.className = 'erro-campo';
     erro.hidden = true;
@@ -171,9 +231,9 @@ function montarPerguntas() {
         const formatado = aplicarMascara(entrada.value, campo.tipo);
         if (formatado !== entrada.value) entrada.value = formatado;
       }
-      respostas[campo.chave] = entrada.value;
-      exemplo.textContent = textoExemplo(campo, entrada.value);
-      if (!entrada.classList.contains('campo-texto--erro') || !validarResposta(campo.tipo, entrada.value)) mostrarErroCampo(entrada, null);
+      respostas[campo.chave] = valorDe(entrada);
+      exemplo.textContent = textoExemplo(campo, valorDe(entrada));
+      if (!entrada.classList.contains('campo-texto--erro') || !validarResposta(campo.tipo, valorDe(entrada), campo.opcoes)) mostrarErroCampo(entrada, null);
       $('erro-respostas').hidden = true;
       atualizarPrevia();
       destacarNaPrevia(campo.chave, false);
@@ -188,16 +248,14 @@ function montarPerguntas() {
           atualizarPrevia();
         }
       }
-      mostrarErroCampo(entrada, validarResposta(campo.tipo, entrada.value));
+      if (campo.tipo !== 'sim-nao') mostrarErroCampo(entrada, validarResposta(campo.tipo, valorDe(entrada), campo.opcoes));
       destacarNaPrevia(null);
     });
-    // Enter avança para a próxima pergunta em vez de enviar o formulário.
+    // Enter avança para a próxima pergunta em vez de enviar o formulário (no texto longo, Enter é nova linha).
     entrada.addEventListener('keydown', (evento) => {
-      if (evento.key !== 'Enter') return;
+      if (evento.key !== 'Enter' || campo.tipo === 'texto-longo') return;
       evento.preventDefault();
-      const proxima = $(`resposta-${indice + 1}`);
-      if (proxima) proxima.focus();
-      else $('botao-gerar').focus();
+      focarProxima(indice);
     });
     entrada.addEventListener('focus', () => destacarNaPrevia(campo.chave));
 
@@ -240,10 +298,10 @@ export async function abrirGerar(id, historicoId, ctx) {
       config,
       campos,
       perguntas: campos.filter((c) => !c.automatico),
-      tipos: mapaDeTipos(campos),
       respostas: {},
       sugestoes,
       ultima: anteriores[0] ?? null,
+      ativos: new Set(),
     };
     if (registro) {
       for (const c of geracao.perguntas) {
@@ -257,6 +315,9 @@ export async function abrirGerar(id, historicoId, ctx) {
   }
   const { modelo, perguntas, campos } = geracao;
   $('titulo-gerar').textContent = modelo.nome;
+  $('link-lote').href = `#/lote/${modelo.id}`;
+  $('link-lote').hidden = perguntas.length === 0 || !modelo.conteudo;
+  $('link-editar-gerar').href = `#/editar/${modelo.id}`;
   const automaticos = campos.filter((c) => c.automatico).map((c) => `[${c.chave}]`);
   $('resumo-gerar').textContent = (perguntas.length
     ? 'Responda às perguntas. As respostas entram no lugar dos campos entre colchetes.'
@@ -272,14 +333,17 @@ export async function abrirGerar(id, historicoId, ctx) {
 }
 
 async function gerarDocumento(formato) {
-  const { modelo, campos, respostas } = geracao;
+  const { modelo, config, campos, respostas } = geracao;
   if (!modelo.conteudo) return avisar('Este modelo está vazio.', 'erro');
 
   // Etapa 1, Q11: nada é gerado com campos sem resposta. v1.1: nem com resposta inválida para o tipo.
-  const pendentes = camposPendentes(campos, respostas);
-  const invalidos = camposInvalidos(campos, respostas);
+  // v1.2: opcionais e perguntas de trechos escondidos por [SE …] não contam.
+  const completas = respostasCompletas();
+  const ativos = camposAtivosDoModelo({ ...modelo, config }, completas);
+  const pendentes = camposPendentes(campos, completas, ativos);
+  const invalidos = camposInvalidos(campos, completas, ativos);
   const comErro = new Set([...pendentes, ...invalidos.map((i) => i.chave)]);
-  for (const entrada of $('perguntas').querySelectorAll('input')) {
+  for (const entrada of $('perguntas').querySelectorAll('.entrada-resposta')) {
     const invalido = invalidos.find((i) => i.chave === entrada.dataset.campo);
     mostrarErroCampo(entrada, invalido?.mensagem ?? null);
     entrada.classList.toggle('campo-texto--erro', comErro.has(entrada.dataset.campo));

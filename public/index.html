@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>GERADOC</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231d4ed8'/%3E%3Cpath d='M11 8h7l5 5v11H11z' fill='none' stroke='white' stroke-width='2' stroke-linejoin='round'/%3E%3Cpath d='M14 17h6M14 21h4' stroke='white' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23221d17'/%3E%3Crect x='5' y='5' width='22' height='22' rx='5' fill='%23ffd23f' transform='rotate(-6 16 16)'/%3E%3Cpath d='M11 8h7l5 5v11H11z' fill='none' stroke='%23221d17' stroke-width='2' stroke-linejoin='round'/%3E%3Cpath d='M14 17h6M14 21h4' stroke='%23221d17' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="vendor/quill/quill.snow.css">
   <link rel="stylesheet" href="css/estilo.css">
 </head>
@@ -35,6 +35,9 @@
       <symbol id="i-atalho" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></symbol>
       <symbol id="i-desligar" viewBox="0 0 24 24"><path d="M12 3v9"/><path d="M6.3 7.3a8 8 0 1 0 11.4 0"/></symbol>
       <symbol id="i-campo" viewBox="0 0 24 24"><path d="M8 4H5v16h3M16 4h3v16h-3"/></symbol>
+      <symbol id="i-lote" viewBox="0 0 24 24"><rect x="8" y="3" width="12" height="15" rx="2"/><path d="M16 18v1a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h2"/></symbol>
+      <symbol id="i-planilha" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M3 15h18M9 4v16"/></symbol>
+      <symbol id="i-condicao" viewBox="0 0 24 24"><path d="M6 3v6a4 4 0 0 0 4 4h8M6 9v12M15 10l3 3-3 3"/></symbol>
     </defs>
   </svg>
 
@@ -127,6 +130,10 @@
             <input id="nome-modelo" class="campo-texto" type="text" maxlength="120" autocomplete="off"
                    placeholder="Ex.: Contrato de locação">
             <p id="erro-nome" class="erro-campo" hidden></p>
+            <label class="rotulo rotulo--espaco" for="cfg-nome-arquivo">Nome do arquivo gerado <span class="dica">(opcional)</span></label>
+            <input id="cfg-nome-arquivo" class="campo-texto" type="text" maxlength="150" autocomplete="off" spellcheck="false"
+                   placeholder="Ex.: Contrato - [NOME] - [HOJE]">
+            <p class="dica dica--abaixo">Pode usar os campos do modelo. Em branco, o arquivo sai como “nome do modelo - data”.</p>
           </div>
         </div>
 
@@ -152,9 +159,28 @@
               <span class="inserir-campo-titulo"><svg class="icone"><use href="#i-campo"/></svg>Inserir campo</span>
               <input id="inserir-campo-nome" class="campo-texto campo-texto--pequeno" type="text" maxlength="60" placeholder="Nome, ex.: VALOR" aria-label="Nome do campo">
               <select id="inserir-campo-tipo" class="campo-texto campo-texto--pequeno" aria-label="Tipo do campo"></select>
+              <input id="inserir-campo-opcoes" class="campo-texto campo-texto--pequeno" type="text" maxlength="300" placeholder="Opções: solteiro | casado | viúvo" aria-label="Opções, separadas por |" hidden>
+              <label class="marcar"><input id="inserir-campo-opcional" type="checkbox"> opcional</label>
               <button id="inserir-campo-botao" class="botao botao--secundario botao--pequeno" type="button">Inserir</button>
+              <button id="inserir-condicao-botao" class="botao botao--fantasma botao--pequeno" type="button" title="O trecho selecionado só aparece no documento se este campo for respondido (ou marcado como Sim)"><svg class="icone"><use href="#i-condicao"/></svg>Trecho condicional</button>
               <span id="inserir-campo-exemplo" class="dica"></span>
             </div>
+
+            <details class="ajuda">
+              <summary>O que dá para escrever entre colchetes</summary>
+              <dl>
+                <dt><code>[NOME]</code> · <code>[CPF:cpf]</code> · <code>[VALOR:moeda]</code></dt>
+                <dd>Pergunta simples ou com formato (data, CPF, CNPJ, CEP, telefone, e-mail, hora, moeda, número, porcento, extenso, nome, maiúsculas…).</dd>
+                <dt><code>[ESTADO CIVIL: solteiro | casado | viúvo]</code></dt>
+                <dd>Lista de opções: a pessoa escolhe uma.</dd>
+                <dt><code>[OBSERVAÇÕES:texto-longo]</code> · <code>[COMPLEMENTO:opcional]</code></dt>
+                <dd>Resposta com várias linhas; resposta que pode ficar em branco.</dd>
+                <dt><code>[SE TEM FIADOR]</code> … <code>[SENÃO]</code> … <code>[FIM SE]</code></dt>
+                <dd>O trecho só entra no documento se a resposta for “sim” (ou estiver preenchida). Também: <code>[SE ESTADO CIVIL = casado]</code>, <code>[SE VALOR &gt; 1000]</code>, <code>[SE NÃO TEM FIADOR]</code>. As perguntas de um trecho escondido não são feitas.</dd>
+                <dt><code>[=VALOR * QTD]</code> · <code>[=VALOR * 10%:extenso]</code> · <code>[=INÍCIO + 12 meses:data-extenso]</code></dt>
+                <dd>Contas com números e datas (+ − * /, dias, meses, anos). <code>[HOJE]</code> é a data do dia: <code>[=HOJE + 30 dias]</code>.</dd>
+              </dl>
+            </details>
 
             <div class="campos-detectados" aria-live="polite">
               <span class="campos-detectados-titulo">Perguntas geradas</span>
@@ -218,6 +244,10 @@
           <h1 id="titulo-gerar"></h1>
           <p id="resumo-gerar" class="subtitulo"></p>
         </div>
+        <div class="cabecalho-acoes">
+          <a id="link-editar-gerar" class="botao botao--secundario" href="#/"><svg class="icone"><use href="#i-editar"/></svg>Editar modelo</a>
+          <a id="link-lote" class="botao botao--secundario" href="#/" title="Vários documentos de uma vez, a partir de uma planilha"><svg class="icone"><use href="#i-lote"/></svg>Gerar em lote</a>
+        </div>
       </div>
 
       <div class="gerar-grade">
@@ -264,6 +294,70 @@
           </div>
         </div>
       </div>
+    </section>
+
+    <!-- Tela 3b: gerar em lote (uma planilha, um documento por linha) -->
+    <section id="tela-lote" class="tela" hidden>
+      <div class="cabecalho-tela">
+        <div class="cabecalho-texto">
+          <nav class="migalhas" aria-label="Navegação"><a href="#/">Modelos</a><span aria-hidden="true">/</span><a id="lote-migalha-modelo" href="#/"></a><span aria-hidden="true">/</span><span>Gerar em lote</span></nav>
+          <h1>Gerar em lote</h1>
+          <p class="subtitulo">Vários documentos de uma vez: cada linha da planilha vira um documento, e todos são baixados juntos num arquivo <code>.zip</code>.</p>
+        </div>
+      </div>
+
+      <div class="painel">
+        <p id="lote-sem-perguntas" class="vazio-busca" hidden>Este modelo não tem perguntas, então não há o que variar entre os documentos.</p>
+        <div id="lote-planilha">
+          <div class="secao">
+            <div class="secao-info">
+              <h2>1. Planilha</h2>
+              <p>A primeira linha tem os títulos das colunas (os nomes das perguntas). Depois, uma linha para cada documento.</p>
+              <p>Baixe a planilha pronta, preencha no Excel e traga de volta: copie as células e cole aqui, ou abra o arquivo <code>.csv</code>.</p>
+            </div>
+            <div class="secao-corpo">
+              <span class="rotulo">Colunas deste modelo</span>
+              <div id="lote-colunas" class="chips"></div>
+              <div class="acoes-linha">
+                <button id="lote-baixar-planilha" class="botao botao--secundario" type="button"><svg class="icone"><use href="#i-planilha"/></svg>Baixar planilha para preencher</button>
+                <button id="lote-abrir-arquivo" class="botao botao--secundario" type="button"><svg class="icone"><use href="#i-importar"/></svg>Abrir arquivo .csv</button>
+              </div>
+              <label class="rotulo rotulo--espaco" for="lote-texto">Ou cole aqui as células copiadas do Excel (com a linha de títulos)</label>
+              <textarea id="lote-texto" class="campo-texto campo-texto--planilha" rows="6" spellcheck="false" placeholder="NOME&#9;CPF&#9;VALOR&#10;Ana Souza&#9;529.982.247-25&#9;1500&#10;…"></textarea>
+              <p id="lote-erro" class="alerta-aviso alerta--abaixo" role="alert" hidden></p>
+            </div>
+          </div>
+
+          <div id="lote-conferencia" class="secao" hidden>
+            <div class="secao-info">
+              <h2>2. Conferência</h2>
+              <p>Confira como cada linha foi lida. Linhas com problema ficam de fora do lote.</p>
+            </div>
+            <div class="secao-corpo">
+              <p id="lote-resumo" class="alerta-ok"></p>
+              <div class="tabela-rolagem">
+                <table class="tabela tabela--compacta">
+                  <thead id="lote-tabela-cabecalho"></thead>
+                  <tbody id="lote-tabela-corpo"></tbody>
+                </table>
+              </div>
+              <p id="lote-mais" class="dica dica--abaixo" hidden></p>
+            </div>
+          </div>
+
+          <div class="painel-rodape painel-rodape--lote">
+            <div id="lote-progresso" class="lote-progresso" hidden>
+              <span id="lote-progresso-texto"></span>
+              <div class="progresso-barra progresso-barra--alta"><div id="lote-progresso-preenchido" class="progresso-preenchido"></div></div>
+              <button id="lote-cancelar" class="botao botao--fantasma botao--pequeno" type="button">Cancelar</button>
+            </div>
+            <span class="espacador"></span>
+            <button id="lote-botao-word" class="botao botao--secundario" type="button" disabled><svg class="icone"><use href="#i-word"/></svg><span class="botao-rotulo">Gerar Words</span></button>
+            <button id="lote-botao-pdf" class="botao botao--primario" type="button" disabled><svg class="icone"><use href="#i-pdf"/></svg><span class="botao-rotulo">Gerar PDFs</span></button>
+          </div>
+        </div>
+      </div>
+      <div id="lote-resultado" class="alerta-ok alerta--abaixo" role="status" hidden></div>
     </section>
 
     <!-- Tela 4: lixeira -->
@@ -461,6 +555,7 @@
   </main>
 
   <input id="arquivo-importar" type="file" accept=".json,application/json" hidden>
+  <input id="lote-arquivo" type="file" accept=".csv,.txt,.tsv,text/csv,text/plain" hidden>
 
   <!-- Confirmação (excluir, excluir definitivamente…) — textos preenchidos pelo app.js -->
   <dialog id="dialogo-confirmar" class="dialogo" aria-labelledby="dialogo-titulo" aria-describedby="dialogo-texto">

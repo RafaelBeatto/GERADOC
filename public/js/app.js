@@ -1,17 +1,19 @@
 // GERADOC — frontend: navegação, lista de modelos, lixeira e importação.
-// Navegação por hash: #/  ·  #/novo  ·  #/editar/<id>  ·  #/gerar/<id>[/<historico>]  ·  #/lixeira
+// Navegação por hash: #/  ·  #/novo  ·  #/editar/<id>  ·  #/gerar/<id>[/<historico>]  ·  #/lote/<id>  ·  #/lixeira
 //                     #/versoes/<id>  ·  #/historico  ·  #/configuracoes
 import {
   $, api, avisar, botaoAcao, confirmar, formatarData, linhaTabela, negrito, plural,
 } from './util.js';
 import { abrirEditor, editorTemAlteracoes } from './editor.js';
 import { abrirGerar, gerarTemAlteracoes } from './gerar.js';
+import { abrirLote, loteEmAndamento } from './lote.js';
 import { abrirConfiguracoes, abrirHistorico, abrirVersoes } from './telas.js';
 
 const telas = {
   lista: $('tela-lista'),
   editor: $('tela-editor'),
   gerar: $('tela-gerar'),
+  lote: $('tela-lote'),
   lixeira: $('tela-lixeira'),
   versoes: $('tela-versoes'),
   historico: $('tela-historico'),
@@ -21,7 +23,7 @@ const telas = {
 };
 
 // Seção do menu do topo destacada para cada tela.
-const SECOES = { lista: 'modelos', editor: 'modelos', gerar: 'modelos', lixeira: 'modelos', versoes: 'modelos', historico: 'historico', configuracoes: 'configuracoes' };
+const SECOES = { lista: 'modelos', editor: 'modelos', gerar: 'modelos', lote: 'modelos', lixeira: 'modelos', versoes: 'modelos', historico: 'historico', configuracoes: 'configuracoes' };
 
 function mostrar(nome) {
   for (const [chave, tela] of Object.entries(telas)) tela.hidden = chave !== nome;
@@ -267,14 +269,15 @@ async function excluirDefinitivo(modelo) {
 function temAlteracoes() {
   if (!telas.editor.hidden) return editorTemAlteracoes();
   if (!telas.gerar.hidden) return gerarTemAlteracoes();
+  if (!telas.lote.hidden) return loteEmAndamento();
   return false;
 }
 
 let hashAnterior = location.hash;
 function rotear() {
-  const pergunta = telas.gerar.hidden
-    ? 'Há alterações não salvas neste modelo. Sair mesmo assim?'
-    : 'As respostas digitadas serão perdidas. Sair mesmo assim?';
+  let pergunta = 'Há alterações não salvas neste modelo. Sair mesmo assim?';
+  if (!telas.gerar.hidden) pergunta = 'As respostas digitadas serão perdidas. Sair mesmo assim?';
+  if (!telas.lote.hidden) pergunta = 'O lote ainda está sendo gerado. Sair mesmo assim?';
   if (location.hash !== hashAnterior && temAlteracoes() && !confirm(pergunta)) {
     history.replaceState(null, '', hashAnterior || '#/');
     return;
@@ -284,6 +287,7 @@ function rotear() {
   if (rota === 'novo') return abrirEditor(null, ctx);
   if (rota === 'editar' && id) return abrirEditor(id, ctx);
   if (rota === 'gerar' && id) return abrirGerar(id, extra ?? null, ctx);
+  if (rota === 'lote' && id) return abrirLote(id, ctx);
   if (rota === 'versoes' && id) return abrirVersoes(id, ctx);
   if (rota === 'lixeira') return abrirLixeira();
   if (rota === 'historico') return abrirHistorico(ctx);

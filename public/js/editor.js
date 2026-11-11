@@ -1,7 +1,7 @@
 // GERADOC — tela de criar/editar modelo.
 // Conteúdo, cabeçalho e rodapé (editores Quill), imagens, quebra de página, inserir campo e configuração de página.
 import { $, api, avisar, chip, lerImagem } from './util.js';
-import { camposDoHtml, FORMATOS } from './campos.js';
+import { camposDoHtml, FORMATOS, rotuloTipo } from './campos.js';
 import {
   CONFIG_PADRAO, FONTES, NUMERACAO, PAPEIS, ErroConfig, configOuPadrao, htmlVazio, validarConfig,
 } from './pagina.js';
@@ -133,24 +133,65 @@ const seletorTipo = $('inserir-campo-tipo');
 for (const [valor, { rotulo }] of Object.entries(FORMATOS)) {
   seletorTipo.add(new Option(rotulo, valor));
 }
+seletorTipo.add(new Option('Lista de opções', 'opcoes'));
 function atualizarExemplo() {
-  $('inserir-campo-exemplo').textContent = `Sai como: ${FORMATOS[seletorTipo.value].exemplo}`;
+  const lista = seletorTipo.value === 'opcoes';
+  $('inserir-campo-opcoes').hidden = !lista;
+  $('inserir-campo-exemplo').textContent = lista ? 'Sai como: a opção escolhida' : `Sai como: ${FORMATOS[seletorTipo.value].exemplo}`;
 }
 seletorTipo.addEventListener('change', atualizarExemplo);
 atualizarExemplo();
 
-function inserirCampo() {
-  const nome = $('inserir-campo-nome').value.replace(/[[\]:]/g, ' ').replace(/\s+/g, ' ').trim().toLocaleUpperCase('pt-BR');
+function nomeParaInserir() {
+  const nome = $('inserir-campo-nome').value.replace(/[[\]:|=<>]/g, ' ').replace(/\s+/g, ' ').trim().toLocaleUpperCase('pt-BR');
   if (!nome) {
     $('inserir-campo-nome').focus();
-    return avisar('Digite o nome do campo (ex.: VALOR).', 'erro');
+    avisar('Digite o nome do campo (ex.: VALOR).', 'erro');
   }
-  const texto = seletorTipo.value === 'texto' ? `[${nome}]` : `[${nome}:${seletorTipo.value}]`;
+  return nome;
+}
+
+function inserirCampo() {
+  const nome = nomeParaInserir();
+  if (!nome) return;
+  const opcional = $('inserir-campo-opcional').checked;
+  let sufixo = seletorTipo.value === 'texto' ? '' : seletorTipo.value;
+  if (seletorTipo.value === 'opcoes') {
+    const opcoes = $('inserir-campo-opcoes').value.split(/[|;,]/).map((o) => o.replace(/[[\]]/g, ' ').replace(/\s+/g, ' ').trim()).filter(Boolean);
+    if (opcoes.length < 2) {
+      $('inserir-campo-opcoes').focus();
+      avisar('Escreva pelo menos duas opções, separadas por | (ex.: solteiro | casado).', 'erro');
+      return;
+    }
+    sufixo = ` ${[...opcoes, ...(opcional ? ['opcional'] : [])].join(' | ')}`;
+  } else if (opcional) {
+    sufixo = sufixo ? `${sufixo} opcional` : 'opcional';
+  }
+  const texto = sufixo ? `[${nome}:${sufixo}]` : `[${nome}]`;
   const posicao = quill.getSelection(true)?.index ?? quill.getLength() - 1;
   quill.insertText(posicao, texto, 'user');
   quill.setSelection(posicao + texto.length, 0, 'user');
   $('inserir-campo-nome').value = '';
+  $('inserir-campo-opcoes').value = '';
+  $('inserir-campo-opcional').checked = false;
 }
+
+/** Envolve o trecho selecionado em [SE CAMPO] … [FIM SE]. */
+function inserirCondicao() {
+  const nome = nomeParaInserir();
+  if (!nome) return;
+  const selecao = quill.getSelection(true) ?? { index: quill.getLength() - 1, length: 0 };
+  const abre = `[SE ${nome}]`;
+  const fecha = '[FIM SE]';
+  quill.insertText(selecao.index + selecao.length, fecha, 'user');
+  quill.insertText(selecao.index, abre, 'user');
+  quill.setSelection(selecao.index + abre.length, selecao.length, 'user');
+  $('inserir-campo-nome').value = '';
+  avisar(selecao.length
+    ? `O trecho selecionado só aparece se ${nome} for respondido (ou marcado como Sim).`
+    : `Escreva entre [SE ${nome}] e [FIM SE] o que só aparece se ${nome} for respondido (ou marcado como Sim).`);
+}
+$('inserir-condicao-botao').addEventListener('click', inserirCondicao);
 $('inserir-campo-botao').addEventListener('click', inserirCampo);
 $('inserir-campo-nome').addEventListener('keydown', (evento) => {
   if (evento.key === 'Enter') {
@@ -189,6 +230,7 @@ function lerConfig() {
     cabecalho: htmlDe(quillCabecalho),
     rodape: htmlDe(quillRodape),
     numeracao: $('cfg-numeracao').value,
+    nomeArquivo: $('cfg-nome-arquivo').value.replace(/\s+/g, ' ').trim(),
   };
 }
 
@@ -200,6 +242,7 @@ function preencherConfig(config) {
   $('cfg-fonte').value = c.fonte;
   $('cfg-tamanho').value = c.tamanhoFonte;
   $('cfg-numeracao').value = c.numeracao;
+  $('cfg-nome-arquivo').value = c.nomeArquivo;
   for (const [q, html] of [[quillCabecalho, c.cabecalho], [quillRodape, c.rodape]]) {
     q.setContents([]);
     if (html) q.clipboard.dangerouslyPasteHTML(html, 'silent');
@@ -250,10 +293,11 @@ function atualizarCamposEditor() {
     let texto = c.ocorrencias > 1 ? `${c.chave} ×${c.ocorrencias}` : c.chave;
     if (c.automatico) texto += ' · automático';
     else if (c.tipo !== 'texto') texto += ` · ${c.tipo}`;
+    if (c.opcional) texto += ' · opcional';
     const el = chip(texto, c.automatico ? 'chip chip--auto' : 'chip');
     el.title = c.automatico
       ? 'Preenchido sozinho com a data do dia'
-      : `Formatos usados: ${c.formatos.map((f) => FORMATOS[f]?.rotulo ?? f).join(', ')}`;
+      : `${rotuloTipo(c.tipo)}${c.opcoes ? ` (${c.opcoes.join(', ')})` : ''}${c.formatos.length ? ` — formatos usados: ${c.formatos.map(rotuloTipo).join(', ')}` : ' — usado em condição ou conta'}`;
     return el;
   }));
 }

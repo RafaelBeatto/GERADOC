@@ -52,7 +52,7 @@ test('recusa respostas inválidas, modelo inexistente e modelo vazio (sem abrir 
   const id = await criarModelo('Declaração', '<p>[NOME]</p>');
   assert.equal((await post('/pdf', { modeloId: id, respostas: ['x'] })).status, 400);
   assert.equal((await post('/pdf', { modeloId: id, respostas: { NOME: 5 } })).status, 400);
-  assert.equal((await post('/pdf', { modeloId: id, respostas: { NOME: 'a'.repeat(2001) } })).status, 400);
+  assert.equal((await post('/pdf', { modeloId: id, respostas: { NOME: 'a'.repeat(10001) } })).status, 400);
   assert.equal((await post('/pdf', { modeloId: 'nao-existe', respostas: {} })).status, 404);
   const vazio = await criarModelo('Vazio', '');
   assert.equal((await post('/pdf', { modeloId: vazio, respostas: {} })).status, 400);

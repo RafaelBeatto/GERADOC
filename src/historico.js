@@ -55,21 +55,27 @@ export function criarHistorico({ arquivo, aoAlterar = () => {} }) {
 
   return {
     /** Registra uma geração. Guarda só as respostas digitadas (não os campos automáticos). */
-    registrar({ modelo, formato, respostas, campos }) {
+    registrar(geracao) {
+      return this.registrarVarios([geracao]).then((itens) => itens[0]);
+    },
+
+    /** Registra várias gerações de uma vez (lote), numa única gravação. A última da lista fica como a mais recente. */
+    registrarVarios(geracoes) {
       return emFila(async () => {
-        const chaves = new Set(campos.filter((c) => !c.automatico).map((c) => c.chave));
-        const guardadas = Object.fromEntries(Object.entries(respostas).filter(([k, v]) => chaves.has(k) && typeof v === 'string'));
-        const item = {
-          id: randomUUID(),
-          modeloId: modelo.id,
-          modeloNome: modelo.nome,
-          formato,
-          respostas: guardadas,
-          geradoEm: new Date().toISOString(),
-        };
-        const itens = [item, ...(await ler())].slice(0, HISTORICO_MAX);
-        await gravar(itens);
-        return item;
+        const novos = geracoes.map(({ modelo, formato, respostas, campos }) => {
+          const chaves = new Set(campos.filter((c) => !c.automatico).map((c) => c.chave));
+          const guardadas = Object.fromEntries(Object.entries(respostas).filter(([k, v]) => chaves.has(k) && typeof v === 'string'));
+          return {
+            id: randomUUID(),
+            modeloId: modelo.id,
+            modeloNome: modelo.nome,
+            formato,
+            respostas: guardadas,
+            geradoEm: new Date().toISOString(),
+          };
+        });
+        if (novos.length) await gravar([...[...novos].reverse(), ...(await ler())].slice(0, HISTORICO_MAX));
+        return novos;
       });
     },
 

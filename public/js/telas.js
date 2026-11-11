@@ -113,7 +113,7 @@ async function selecionarVersao(versao, elemento) {
     // A prévia mostra o modelo com os campos destacados, sem preencher nada.
     const { preencherHtml } = await import('./campos.js');
     previa.innerHTML = dados.conteudo
-      ? preencherHtml(dados.conteudo, {}, { marcar: true })
+      ? preencherHtml(dados.conteudo, {}, { marcar: true, condicionais: false })
       : '<p class="previa-vazia">Esta versão estava vazia.</p>';
     $('botao-restaurar-versao').disabled = false;
   } catch (erro) {

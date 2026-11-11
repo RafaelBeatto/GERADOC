@@ -49,7 +49,7 @@ test('configuração de página: padrão igual à v1.0, validação e mensagens 
   const padrao = validarConfig(undefined);
   assert.deepEqual(padrao, {
     papel: 'A4', orientacao: 'retrato', margens: { superior: 2.5, inferior: 2.5, esquerda: 2.5, direita: 2.5 },
-    fonte: 'Segoe UI', tamanhoFonte: 12, cabecalho: '', rodape: '', numeracao: 'nenhuma',
+    fonte: 'Segoe UI', tamanhoFonte: 12, cabecalho: '', rodape: '', numeracao: 'nenhuma', nomeArquivo: '',
   });
   assert.equal(validarConfig({ margens: { superior: '3,5' } }).margens.superior, 3.5, 'aceita vírgula');
   assert.throws(() => validarConfig({ papel: 'A3' }), ErroConfig);

@@ -5,13 +5,14 @@ import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { criarRepositorio, ErroModelo } from './modelos.js';
-import { criarGerador, ErroGeracao, FORMATOS, nomeArquivo } from './gerador.js';
+import { criarGerador, ErroGeracao, FORMATOS, nomeArquivo, nomeDocumento } from './gerador.js';
+import { criarLotes, ErroLote, LOTE_MAX } from './lote.js';
 import { criarHistorico, ErroHistorico } from './historico.js';
 import { criarBackupExterno, criarConfiguracoes, ErroConfiguracao, sugerirPastas } from './backup-externo.js';
 
 export const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-export const RESPOSTA_MAX = 2000;
+export const RESPOSTA_MAX = 10000; // respostas de "texto longo" podem ter vários parágrafos
 export const IMPORTACAO_LIMITE = '200mb';
 
 /** Nomes aceitos no cabeçalho Host (proteção contra "DNS rebinding"). */
@@ -80,7 +81,7 @@ function criarAtalhoPadrao(destino) {
  *           esperaBackup?: number }} opcoes
  */
 export function criarApp({
-  pastaDados = path.join(RAIZ, 'dados'), versao = '1.1.0', caminhoNavegador, aoEncerrar = null,
+  pastaDados = path.join(RAIZ, 'dados'), versao = '1.2.0', caminhoNavegador, aoEncerrar = null,
   criarAtalho = criarAtalhoPadrao, esperaBackup,
 } = {}) {
   const configuracoes = criarConfiguracoes({ pastaDados, aoAlterar: () => backup.agendar() });
@@ -93,8 +94,10 @@ export function criarApp({
   });
   const historico = criarHistorico({ arquivo: path.join(pastaDados, 'historico.json'), aoAlterar: () => backup.agendar() });
   const gerador = criarGerador({ raiz: RAIZ, caminhoNavegador });
+  const lotes = criarLotes({ gerador, historico });
 
   const app = express();
+  app.locals.lotes = lotes;
   app.disable('x-powered-by');
   app.locals.pdf = gerador; // permite fechar o navegador ao encerrar (servidor/testes)
   app.locals.gerador = gerador;
@@ -204,11 +207,33 @@ export function criarApp({
     } catch (erro) {
       console.warn(`[GERADOC] Documento gerado, mas não foi possível registrar no histórico: ${erro.message}`);
     }
-    enviarArquivo(res, { conteudo: arquivo, nome: nomeArquivo(modelo.nome, FORMATOS[formato].extensao), tipo: FORMATOS[formato].tipo });
+    enviarArquivo(res, { conteudo: arquivo, nome: nomeDocumento(modelo, limpas, campos, FORMATOS[formato].extensao), tipo: FORMATOS[formato].tipo });
   }
 
   app.post('/api/documento', json, rota((req, res) => gerarDocumento(req, res, 'pdf')));
   app.post('/api/pdf', json, rota((req, res) => gerarDocumento(req, res, 'pdf'))); // compatível com a v1.0
+
+  // ---------- Gerar em lote (v1.2) ----------
+  // Uma linha de respostas por documento. O trabalho roda em segundo plano; a tela consulta o progresso
+  // e baixa o .zip no fim.
+  app.post('/api/lote', json, rota(async (req, res) => {
+    const { modeloId, linhas } = req.body ?? {};
+    const formato = req.body?.formato ?? 'pdf';
+    if (!FORMATOS[formato]) throw new ErroGeracao(400, 'Formato de documento inválido.');
+    if (!Array.isArray(linhas) || linhas.length === 0) throw new ErroLote(400, 'O lote não tem nenhuma linha.');
+    if (linhas.length > LOTE_MAX) throw new ErroLote(400, `O lote pode ter no máximo ${LOTE_MAX} documentos por vez.`);
+    const modelo = await modelos.obter(modeloId);
+    if (!String(modelo.conteudo ?? '').trim()) throw new ErroGeracao(400, 'Este modelo está vazio.');
+    res.status(202).json(lotes.iniciar(modelo, linhas.map(validarRespostas), formato));
+  }));
+
+  app.get('/api/lote/:id', (req, res) => res.json(lotes.status(req.params.id)));
+
+  app.get('/api/lote/:id/arquivo', (req, res) => {
+    enviarArquivo(res, { ...lotes.arquivo(req.params.id), tipo: 'application/zip' });
+  });
+
+  app.delete('/api/lote/:id', (req, res) => res.json(lotes.cancelar(req.params.id)));
 
   // ---------- Histórico ----------
   app.get('/api/historico', rota(async (req, res) => {
@@ -283,7 +308,7 @@ export function criarApp({
 
   // eslint-disable-next-line no-unused-vars
   app.use((erro, _req, res, _next) => {
-    if (erro instanceof ErroModelo || erro instanceof ErroGeracao || erro instanceof ErroHistorico || erro instanceof ErroConfiguracao) {
+    if (erro instanceof ErroModelo || erro instanceof ErroGeracao || erro instanceof ErroHistorico || erro instanceof ErroConfiguracao || erro instanceof ErroLote) {
       return res.status(erro.status).json({ erro: erro.message });
     }
     if (erro.type === 'entity.too.large') return res.status(413).json({ erro: 'O arquivo ou modelo é grande demais.' });
