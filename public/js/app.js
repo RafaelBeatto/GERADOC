@@ -46,8 +46,12 @@ async function verificarServidor() {
   const status = $('status');
   try {
     const dados = await api('/saude');
-    status.textContent = `Online · v${dados.versao}`;
+    status.textContent = dados.modoWeb ? `Versão online · v${dados.versao}` : `Online · v${dados.versao}`;
     status.className = 'status status--ok';
+    if (dados.modoWeb) {
+      document.body.classList.add('modo-web');
+      document.querySelectorAll('[data-so-servidor]').forEach((el) => { el.hidden = true; });
+    }
   } catch {
     status.textContent = 'Servidor desligado';
     status.className = 'status status--erro';

@@ -105,3 +105,6 @@
 ## [0.1.0] - 2026-11-10
 ### Adicionado
 - F0: estrutura do projeto, servidor local (127.0.0.1:3000), `GERADOC.bat` e tela inicial.
+
+## Versão online (GitHub Pages)
+- O GERADOC agora também roda direto no navegador, pelo link do GitHub Pages (sem instalar). Detalhes em `docs/versao-online.md`.
