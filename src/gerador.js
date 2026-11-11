@@ -15,10 +15,10 @@ import { completarRespostas, mapaDeTipos, preencherTexto } from '../public/js/ca
 
 // O navegador sem janela é fechado depois de um tempo sem uso, para não ocupar memória.
 const OCIOSO_MS = 5 * 60 * 1000;
-const PX_POR_CM = 96 / 2.54;
-const DISTANCIA_CABECALHO_CM = 1; // do cabeçalho até a borda de cima (e do rodapé até a de baixo)
-const FOLGA_CM = 0.3; // entre o cabeçalho/rodapé e o texto
-const ENTRELINHA = 1.6;
+export const PX_POR_CM = 96 / 2.54;
+export const DISTANCIA_CABECALHO_CM = 1; // do cabeçalho até a borda de cima (e do rodapé até a de baixo)
+export const FOLGA_CM = 0.3; // entre o cabeçalho/rodapé e o texto
+export const ENTRELINHA = 1.6;
 
 export const FORMATOS = {
   pdf: { extensao: 'pdf', tipo: 'application/pdf' },
@@ -96,15 +96,15 @@ function escaparHtml(texto) {
   return String(texto).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
 
-const cm = (n) => `${Math.round(n * 1000) / 1000}cm`;
+export const cm = (n) => `${Math.round(n * 1000) / 1000}cm`;
 const fonteCss = (fonte) => `"${fonte}", "Segoe UI", system-ui, sans-serif`;
 
 /** Estilo de texto comum ao corpo, cabeçalho e rodapé (igual à pré-visualização). */
-function estiloTexto(config) {
+export function estiloTexto(config) {
   return `font-family: ${fonteCss(config.fonte)}; font-size: ${config.tamanhoFonte}pt; line-height: ${ENTRELINHA}; color: #1b1b1f;`;
 }
 
-const CSS_COMUM = `
+export const CSS_COMUM = `
   .ql-editor { padding: 0; height: auto; overflow: visible; }
   .ql-editor h1, .ql-editor h2, .ql-editor h3 { break-after: avoid; }
   .ql-editor p, .ql-editor li { orphans: 3; widows: 3; }
@@ -112,7 +112,7 @@ const CSS_COMUM = `
   .ql-editor hr.quebra-pagina { break-after: page; border: 0; height: 0; margin: 0; }
 `;
 
-function paginaBase({ titulo, cssQuill, config, larguraConteudo }) {
+export function paginaBase({ titulo, cssQuill, config, larguraConteudo }) {
   // O conteúdo dos modelos é o HTML interno do Quill (classes ql-*), então usamos o CSS do Quill
   // e a mesma tipografia da pré-visualização. O fundo/padding do editor são removidos.
   return `<!doctype html>

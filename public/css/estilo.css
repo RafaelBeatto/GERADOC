@@ -713,3 +713,6 @@ mark.campo--opcional { background: #f1ece2; color: var(--cor-texto-3); box-shado
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; }
 }
+
+/* Versão online: o lote em PDF depende de um servidor (cada PDF passa pela janela de impressão). */
+.modo-web #lote-botao-pdf { display: none; }

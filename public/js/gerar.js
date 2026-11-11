@@ -379,9 +379,14 @@ async function gerarDocumento(formato) {
       const dados = await resposta.json().catch(() => ({}));
       throw new Error(dados.erro || `Erro ${resposta.status}`);
     }
-    const nome = nomeDoCabecalho(resposta.headers.get('Content-Disposition'), `documento.${formato}`);
-    baixar(await resposta.blob(), nome);
-    avisar(`${nomeFormato} gerado: ${nome} (pasta Downloads).`);
+    if (resposta.headers.get('X-Imprimir')) {
+      // Versão online: o PDF sai pela janela de impressão do navegador ("Salvar como PDF").
+      avisar('Janela de impressão fechada. Para guardar o PDF, escolha "Salvar como PDF" como impressora.');
+    } else {
+      const nome = nomeDoCabecalho(resposta.headers.get('Content-Disposition'), `documento.${formato}`);
+      baixar(await resposta.blob(), nome);
+      avisar(`${nomeFormato} gerado: ${nome} (pasta Downloads).`);
+    }
     // Atualiza sugestões e "últimas respostas" para a próxima vez.
     geracao.ultima = { respostas: { ...respostas }, geradoEm: new Date().toISOString() };
   } catch (erro) {
