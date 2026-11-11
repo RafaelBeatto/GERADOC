@@ -1,0 +1,6 @@
+node_modules/
+# Modelos do usuário ficam fora do git (são dados, não código). Faça backup da pasta dados/.
+dados/modelos/*.json
+dados/lixeira/*.json
+dados/backup/
+*.log
